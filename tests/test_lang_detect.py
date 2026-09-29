@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from hreflang_matcher import lang_detect as ld
@@ -61,3 +63,47 @@ class TestStripLanguage:
 
     def test_root(self):
         assert ld.strip_language("a.com/", "de") == "*/"
+
+
+class TestSuggestPatterns:
+    def test_path_segments(self):
+        urls = ["https://a.com/de/x", "https://a.com/de/y", "https://a.com/fr/x", "https://a.com/"]
+        sug = ld.suggest_patterns(urls)
+        by_code = {s.code: s for s in sug}
+        assert by_code["de"].count == 2 and by_code["fr"].count == 1
+        assert re.match(by_code["de"].pattern, "https://a.com/de/x")
+        assert not re.match(by_code["de"].pattern, "https://a.com/design/x")
+        assert sug[0].code == "de"
+
+    def test_subdomain_and_tld(self):
+        urls = ["https://fr.a.com/x", "https://a.de/y", "https://a.de/z"]
+        sug = ld.suggest_patterns(urls)
+        codes = {s.code for s in sug}
+        assert {"fr", "de"} <= codes
+        de = next(s for s in sug if s.code == "de")
+        assert re.match(de.pattern, "https://a.de/y") and not re.match(de.pattern, "https://a.dev/y")
+
+    def test_empty(self):
+        assert ld.suggest_patterns([]) == []
+
+
+class TestSplitByPatterns:
+    def test_top_down_and_rest(self):
+        urls = ["https://a.com/de/x", "https://a.com/de/y", "https://a.com/fr/x", "https://a.com/"]
+        groups, rest, invalid = ld.split_by_patterns(urls, [(r"^https?://[^/]+/de(/|$)", "de"), (r"^https?://[^/]+/fr(/|$)", "fr")])
+        assert groups == {"de": [0, 1], "fr": [2]}
+        assert rest == [3]
+        assert invalid == []
+
+    def test_first_match_wins(self):
+        urls = ["https://a.com/de/x"]
+        groups, rest, _ = ld.split_by_patterns(urls, [(r"^https?://a\.com/", "all"), (r"/de/", "de")])
+        assert groups == {"all": [0]}
+
+    def test_invalid_regex_reported(self):
+        groups, rest, invalid = ld.split_by_patterns(["https://a.com/x"], [("(", "de")])
+        assert invalid == ["("] and rest == [0] and groups == {}
+
+    def test_empty_pattern_or_code_skipped(self):
+        groups, rest, invalid = ld.split_by_patterns(["https://a.com/x"], [("", "de"), (".*", "")])
+        assert groups == {} and rest == [0]

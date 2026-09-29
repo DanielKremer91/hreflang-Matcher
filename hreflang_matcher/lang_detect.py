@@ -82,3 +82,64 @@ def strip_language(norm_url: str, code: str) -> str:
             rest = "/" + "/".join(segs[2:])
             return "*" + rest
     return "*" + path
+
+
+def suggest_patterns(urls: list[str]) -> list[PatternSuggestion]:
+    """Schlägt Regex-Muster aus Pfadsegment, Subdomain und ccTLD vor, nach Häufigkeit sortiert."""
+    buckets: dict[str, dict] = {}
+    for u in urls:
+        host, path = _host_and_path(u)
+        if not host:
+            continue
+        segs = [x for x in path.split("/") if x]
+        parts = host.split(".")
+        key = None
+        code = ""
+        if segs and CODE_RE.match(segs[0]):
+            seg = segs[0].lower()
+            key = rf"^https?://[^/]+/{re.escape(seg)}(/|$)"
+            code = normalize_code(seg)
+        elif len(parts) >= 3 and len(parts[0]) == 2 and parts[0] != "www":
+            sub = parts[0]
+            key = rf"^https?://{re.escape(sub)}\."
+            code = sub
+        else:
+            tld = parts[-1]
+            if tld in CCTLD_LANG:
+                key = rf"^https?://[^/]+\.{re.escape(tld)}(/|$)"
+                code = CCTLD_LANG[tld]
+        if key is None:
+            continue
+        b = buckets.setdefault(key, {"code": code, "example": u, "count": 0})
+        b["count"] += 1
+    out = [PatternSuggestion(pattern=k, code=v["code"], example=v["example"], count=v["count"]) for k, v in buckets.items()]
+    out.sort(key=lambda s: (-s.count, s.pattern))
+    return out
+
+
+def split_by_patterns(
+    urls: list[str], patterns: list[tuple[str, str]]
+) -> tuple[dict[str, list[int]], list[int], list[str]]:
+    """Ordnet jede URL dem ersten passenden Muster zu (top-down). Leere Muster/Codes werden übersprungen."""
+    compiled: list[tuple[re.Pattern, str]] = []
+    invalid: list[str] = []
+    for pat, code in patterns:
+        pat = (pat or "").strip()
+        code = (code or "").strip()
+        if not pat or not code:
+            continue
+        try:
+            compiled.append((re.compile(pat, re.I), code))
+        except re.error:
+            invalid.append(pat)
+    groups: dict[str, list[int]] = {}
+    rest: list[int] = []
+    for i, u in enumerate(urls):
+        s = str(u or "")
+        for rx, code in compiled:
+            if rx.search(s):
+                groups.setdefault(code, []).append(i)
+                break
+        else:
+            rest.append(i)
+    return groups, rest, invalid
