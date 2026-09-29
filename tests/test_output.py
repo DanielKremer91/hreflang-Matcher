@@ -85,3 +85,51 @@ class TestUnmatchedTable:
         assert ("de", "https://a.com/de/3", "kein Treffer über Threshold") in rows
         assert ("fr", "https://a.com/fr/x", "kein Treffer über Threshold") in rows
         assert len(df) == 3
+
+
+class TestFormatCode:
+    def test_modes(self):
+        assert output.format_hreflang_code("de-at", "language-region") == "de-AT"
+        assert output.format_hreflang_code("de-at", "language") == "de"
+        assert output.format_hreflang_code("fr", "language-region") == "fr"
+
+
+class TestHtmlBlocks:
+    def _clusters(self):
+        c1 = Cluster("https://a.com/de/1?x=1&y=2", {"de": "https://a.com/de/1?x=1&y=2", "fr": "https://a.com/fr/1", "en": "https://a.com/en/1"}, {}, "sicher")
+        c2 = Cluster("https://a.com/de/2", {"de": "https://a.com/de/2", "fr": "https://a.com/fr/2"}, {}, "prüfen")
+        c3 = Cluster("https://a.com/de/3", {"de": "https://a.com/de/3"}, {}, "sicher")
+        return [c1, c2, c3]
+
+    def test_block_structure_order_and_escaping(self):
+        out = output.html_blocks(self._clusters(), "de", "en", "language-region", include_review=False)
+        blocks = out.strip().split("\n\n")
+        assert len(blocks) == 3   # nur Cluster 1, ein Block je Mitglied
+        b = blocks[0].split("\n")
+        assert b[0] == "<!-- https://a.com/de/1?x=1&amp;y=2 -->"
+        assert b[1] == '<link rel="alternate" hreflang="de" href="https://a.com/de/1?x=1&amp;y=2" />'
+        assert b[2] == '<link rel="alternate" hreflang="en" href="https://a.com/en/1" />'
+        assert b[3] == '<link rel="alternate" hreflang="fr" href="https://a.com/fr/1" />'
+        assert b[4] == '<link rel="alternate" hreflang="x-default" href="https://a.com/en/1" />'
+        assert blocks[1].startswith("<!-- https://a.com/en/1 -->") or blocks[1].startswith("<!-- https://a.com/fr/1 -->")
+        assert blocks[1].split("\n")[1:] == b[1:]   # identische Tag-Liste
+        assert out.endswith("\n")
+
+    def test_include_review_and_xdefault_fallback(self):
+        out = output.html_blocks(self._clusters(), "de", "en", "language-region", include_review=True)
+        blocks = out.strip().split("\n\n")
+        assert len(blocks) == 5
+        c2_block = next(b for b in blocks if b.startswith("<!-- https://a.com/de/2 -->"))
+        assert 'hreflang="x-default" href="https://a.com/de/2"' in c2_block
+
+    def test_no_xdefault(self):
+        out = output.html_blocks(self._clusters(), "de", None, "language-region", include_review=False)
+        assert "x-default" not in out
+
+    def test_language_mode(self):
+        c = Cluster("p", {"de-AT": "https://a.at/p", "fr-CH": "https://a.ch/fr/p"}, {}, "sicher")
+        out = output.html_blocks([c], "de-AT", None, "language", include_review=False)
+        assert 'hreflang="de"' in out and 'hreflang="fr"' in out and "de-AT" not in out
+
+    def test_empty(self):
+        assert output.html_blocks([], "de", None, "language", include_review=True) == ""

@@ -69,3 +69,34 @@ def unmatched_table(result: MatchResult, sets: list[LanguageSet]) -> pd.DataFram
         for u in result.unmatched.get(s.code, []):
             rows.append((s.code, u, NO_MATCH_REASON))
     return pd.DataFrame(rows, columns=["Sprache", "URL", "Grund"])
+
+
+def format_hreflang_code(code: str, mode: str) -> str:
+    return language_of(code) if mode == "language" else normalize_code(code)
+
+
+def _tag(code_value: str, url: str) -> str:
+    return f'<link rel="alternate" hreflang="{code_value}" href="{html.escape(url, quote=True)}" />'
+
+
+def html_blocks(
+    clusters: list[Cluster],
+    pivot_code: str,
+    x_default_code: str | None,
+    code_mode: str,
+    include_review: bool,
+) -> str:
+    blocks: list[str] = []
+    for cl in clusters:
+        if len(cl.members) < 2:
+            continue
+        if cl.confidence == "prüfen" and not include_review:
+            continue
+        ordered = [pivot_code] + sorted(c for c in cl.members if c != pivot_code)
+        tags = [_tag(format_hreflang_code(c, code_mode), cl.members[c]) for c in ordered]
+        if x_default_code:
+            xd_url = cl.members.get(x_default_code, cl.pivot_url)
+            tags.append(_tag("x-default", xd_url))
+        for c in ordered:
+            blocks.append("\n".join([f"<!-- {html.escape(cl.members[c], quote=True)} -->"] + tags))
+    return "\n\n".join(blocks) + ("\n" if blocks else "")
