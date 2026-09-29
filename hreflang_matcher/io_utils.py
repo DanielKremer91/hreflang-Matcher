@@ -135,21 +135,24 @@ def detect_url_column(df: pd.DataFrame) -> str | None:
     return None
 
 
-def _looks_like_vector_series(series: pd.Series, min_len: int = 8) -> bool:
+def _looks_like_vector_series(series: pd.Series, min_len: int = 8, min_ratio: float = 0.8) -> bool:
     sample = series.dropna().astype(str).head(20)
     if len(sample) == 0:
         return False
+    good = 0
     for v in sample:
         vec = parse_vector(v)
-        if vec is None or vec.size < min_len:
-            return False
-    return True
+        if vec is not None and vec.size >= min_len:
+            good += 1
+    return good >= 1 and good / len(sample) >= min_ratio
 
 
 def detect_embedding_column(df: pd.DataFrame) -> str | None:
+    # Named columns: lenient ratio, broken rows are reported per row later.
     for c in df.columns:
-        if any(h in str(c).lower() for h in EMB_COL_HINTS) and _looks_like_vector_series(df[c]):
+        if any(h in str(c).lower() for h in EMB_COL_HINTS) and _looks_like_vector_series(df[c], min_ratio=0.2):
             return c
+    # Content-only detection: strict default ratio.
     for c in df.columns:
         if _looks_like_vector_series(df[c]):
             return c

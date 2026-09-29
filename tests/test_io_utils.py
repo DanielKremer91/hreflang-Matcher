@@ -112,6 +112,20 @@ class TestDetectColumns:
         df = pd.DataFrame({"Address": ["u"] * 3, "Status Code": ["200", "200", "404"]})
         assert io_utils.detect_embedding_column(df) is None
 
+    def test_embedding_detected_despite_truncated_row(self):
+        urls = [f"https://a.de/{i}" for i in range(11)]
+        vecs = [_vec(8, i) for i in range(10)] + ["[0.1, 0.2, 0.3]"]
+        df = pd.DataFrame({"Address": urls, "OpenAI Embedding 1": vecs})
+        assert io_utils.detect_embedding_column(df) == "OpenAI Embedding 1"
+
+    def test_embedding_named_column_mostly_broken_still_detected(self):
+        df = pd.DataFrame({"Embeddings": [_vec(), _vec(8, 1)] + ["kaputt"] * 8})
+        assert io_utils.detect_embedding_column(df) == "Embeddings"
+
+    def test_embedding_unnamed_column_mostly_broken_not_detected(self):
+        df = pd.DataFrame({"Spalte X": [_vec(), _vec(8, 1)] + ["kaputt"] * 8})
+        assert io_utils.detect_embedding_column(df) is None
+
     def test_status_and_indexability_german_and_english(self):
         df = pd.DataFrame({"Statuscode": [200], "Indexierbarkeit": ["Indexierbar"]})
         assert io_utils.detect_status_column(df) == "Statuscode"
