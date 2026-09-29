@@ -45,6 +45,12 @@ class TestSuggestCode:
         assert ld.suggest_code(["https://a.com/x"]) == ""
         assert ld.suggest_code([]) == ""
 
+    def test_malformed_ipv6_url(self):
+        assert ld.suggest_code(["https://[bad/x"]) == ""
+
+    def test_non_letter_subdomains(self):
+        assert ld.suggest_code(["https://a1.example.com/x", "https://12.example.com/y"]) == ""
+
 
 class TestStripLanguage:
     def test_path_segment(self):
@@ -86,6 +92,16 @@ class TestSuggestPatterns:
     def test_empty(self):
         assert ld.suggest_patterns([]) == []
 
+    def test_malformed_ipv6_url(self):
+        assert ld.suggest_patterns(["https://[bad/x"]) == []
+
+    def test_generic_tlds_skipped(self):
+        assert ld.suggest_patterns(["https://a.com/x", "https://a.com/y"]) == []
+
+    def test_region_only_tlds_included(self):
+        sug = ld.suggest_patterns(["https://a.at/x"])
+        assert len(sug) == 1 and sug[0].code == ""
+
 
 class TestSplitByPatterns:
     def test_top_down_and_rest(self):
@@ -107,3 +123,8 @@ class TestSplitByPatterns:
     def test_empty_pattern_or_code_skipped(self):
         groups, rest, invalid = ld.split_by_patterns(["https://a.com/x"], [("", "de"), (".*", "")])
         assert groups == {} and rest == [0]
+
+    def test_code_normalization(self):
+        urls = ["https://a.com/de/x"]
+        groups, rest, _ = ld.split_by_patterns(urls, [(r"^https?://a\.com/", "DE")])
+        assert groups == {"de": [0]}

@@ -16,6 +16,8 @@ CCTLD_LANG = {
     "at": "", "ch": "", "be": "", "ca": "", "com": "", "net": "", "org": "", "eu": "",
 }
 
+GENERIC_TLDS = {"com", "net", "org", "eu"}
+
 
 def normalize_code(code: str) -> str:
     s = (code or "").strip()
@@ -46,8 +48,11 @@ def _host_and_path(url: str) -> tuple[str, str]:
     s = str(url or "").strip()
     if not re.match(r"^https?://", s, re.I):
         s = "https://" + s
-    p = urlparse(s)
-    return (p.hostname or "").lower(), (p.path or "/")
+    try:
+        p = urlparse(s)
+        return (p.hostname or "").lower(), (p.path or "/")
+    except ValueError:
+        return "", "/"
 
 
 def _code_candidate(url: str) -> str:
@@ -56,7 +61,7 @@ def _code_candidate(url: str) -> str:
     if segs and CODE_RE.match(segs[0]):
         return normalize_code(segs[0])
     parts = host.split(".")
-    if len(parts) >= 3 and len(parts[0]) == 2 and parts[0] != "www":
+    if len(parts) >= 3 and len(parts[0]) == 2 and parts[0] != "www" and CODE_RE.match(parts[0]):
         return parts[0].lower()
     tld = parts[-1] if parts else ""
     return CCTLD_LANG.get(tld, "")
@@ -99,13 +104,13 @@ def suggest_patterns(urls: list[str]) -> list[PatternSuggestion]:
             seg = segs[0].lower()
             key = rf"^https?://[^/]+/{re.escape(seg)}(/|$)"
             code = normalize_code(seg)
-        elif len(parts) >= 3 and len(parts[0]) == 2 and parts[0] != "www":
+        elif len(parts) >= 3 and len(parts[0]) == 2 and parts[0] != "www" and CODE_RE.match(parts[0]):
             sub = parts[0]
             key = rf"^https?://{re.escape(sub)}\."
             code = sub
         else:
             tld = parts[-1]
-            if tld in CCTLD_LANG:
+            if tld in CCTLD_LANG and tld not in GENERIC_TLDS:
                 key = rf"^https?://[^/]+\.{re.escape(tld)}(/|$)"
                 code = CCTLD_LANG[tld]
         if key is None:
@@ -129,7 +134,7 @@ def split_by_patterns(
         if not pat or not code:
             continue
         try:
-            compiled.append((re.compile(pat, re.I), code))
+            compiled.append((re.compile(pat, re.I), normalize_code(code)))
         except re.error:
             invalid.append(pat)
     groups: dict[str, list[int]] = {}
