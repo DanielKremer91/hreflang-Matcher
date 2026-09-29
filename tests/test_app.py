@@ -59,3 +59,12 @@ def test_codes_stay_with_their_file_after_removal():
     at.run()
     assert not at.exception, at.exception
     assert [t.value for t in at.text_input if t.label == "hreflang-Code"] == ["de", "fr"]
+
+
+def test_bad_csv_lines_are_reported():
+    bad = _csv("de") + b'\nhttps://a.com/de/kaputt;"[1.0]";zu viel'
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", bad, "id-de"), ("fr.csv", _csv("fr"), "id-fr")]
+    at.run()
+    assert not at.exception, at.exception
+    assert any("1 fehlerhafte Zeile(n) in de.csv" in w.value for w in at.warning)

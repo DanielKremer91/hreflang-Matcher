@@ -76,6 +76,22 @@ class TestReadAnyFile:
         df = io_utils.read_any_file("crawl.csv", raw)
         assert list(df.columns) == ["Adresse", "Embedding"]
 
+    def test_csv_bad_line_is_counted_not_silent(self):
+        raw = (
+            "Address;Embedding\n"
+            "https://a.de/1;\"[0.1, 0.2]\"\n"
+            "https://a.de/2;\"[0.3, 0.4]\"\n"
+            "https://a.de/kaputt;\"[0.5, 0.6]\";zu viel\n"
+            "https://a.de/3;\"[0.7, 0.8]\"\n"
+        ).encode("utf-8")
+        df = io_utils.read_any_file("crawl.csv", raw)
+        assert df["Address"].tolist() == ["https://a.de/1", "https://a.de/2", "https://a.de/3"]
+        assert df.attrs["bad_lines"] == 1
+
+    def test_csv_without_bad_lines_reports_zero(self):
+        raw = "Address,Embeddings\nhttps://a.de/x,\"[0.1, 0.2]\"\n".encode("utf-8")
+        assert io_utils.read_any_file("crawl.csv", raw).attrs["bad_lines"] == 0
+
     def test_xlsx(self, tmp_path):
         p = tmp_path / "c.xlsx"
         pd.DataFrame({"Address": ["https://a.de/x"], "Embeddings": ["[0.1, 0.2]"]}).to_excel(p, index=False)

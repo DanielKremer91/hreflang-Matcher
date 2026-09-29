@@ -119,6 +119,12 @@ def build_cached(
     return io_utils.build_language_set(df, code, name, url_col, emb_col, filter_idx, status_col, index_col)
 
 
+def warn_bad_lines(name: str, df: pd.DataFrame) -> None:
+    n = df.attrs.get("bad_lines", 0)
+    if n > 0:
+        st.warning(f"{n} fehlerhafte Zeile(n) in {name} konnten nicht gelesen werden und wurden übersprungen.")
+
+
 def _clean(v) -> str:
     return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
 
@@ -145,6 +151,7 @@ if mode == MODE_MULTI:
         except ValueError as e:
             st.error(f"{f.name}: {e}")
             continue
+        warn_bad_lines(f.name, df)
         sources.append({
             "name": f.name, "raw": raw, "df": df, "row_idx": None, "label": f.name, "code_default": None,
             "key": source_key(MODE_FILE, getattr(f, "file_id", None), raw, None),
@@ -163,6 +170,7 @@ else:
             st.error(f"{f.name}: {e}")
             df_all = None
         if df_all is not None:
+            warn_bad_lines(f.name, df_all)
             cols_all = list(df_all.columns)
             url_guess_all = io_utils.detect_url_column(df_all)
             url_col_all = st.selectbox(

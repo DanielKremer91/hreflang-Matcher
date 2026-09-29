@@ -79,8 +79,24 @@ def parse_vector(value) -> np.ndarray | None:
     return np.asarray([float(x) for x in nums], dtype=np.float32)
 
 
+def _read_csv(raw: bytes, sep, encoding: str) -> pd.DataFrame:
+    """Liest eine CSV und zählt fehlerhafte Zeilen (zu viele Felder) in df.attrs["bad_lines"]."""
+    bad_lines: list[list[str]] = []
+    df = pd.read_csv(
+        BytesIO(raw), sep=sep, engine="python", encoding=encoding,
+        # Rückgabe None verwirft die Zeile; gezählt wird sie trotzdem, damit nichts stumm verloren geht.
+        on_bad_lines=lambda bad: (bad_lines.append(bad), None)[1],
+    )
+    df.columns = [str(c).strip() for c in df.columns]
+    df.attrs["bad_lines"] = len(bad_lines)
+    return df
+
+
 def read_any_file(name: str, raw: bytes) -> pd.DataFrame:
-    """Liest CSV (Encoding- und Separator-Erkennung) oder Excel aus Bytes. Wirft ValueError."""
+    """Liest CSV (Encoding- und Separator-Erkennung) oder Excel aus Bytes. Wirft ValueError.
+
+    Bei CSV steht die Zahl übersprungener fehlerhafter Zeilen in df.attrs["bad_lines"].
+    """
     name = (name or "").lower()
     if not raw:
         raise ValueError("Datei ist leer.")
@@ -88,9 +104,8 @@ def read_any_file(name: str, raw: bytes) -> pd.DataFrame:
         last_err = None
         for enc in ("utf-8-sig", "utf-8", "cp1252", "latin1"):
             try:
-                df = pd.read_csv(BytesIO(raw), sep=None, engine="python", encoding=enc, on_bad_lines="skip")
+                df = _read_csv(raw, None, enc)
                 if df.shape[1] >= 1:
-                    df.columns = [str(c).strip() for c in df.columns]
                     return df
             except UnicodeDecodeError as e:
                 last_err = e
@@ -99,9 +114,7 @@ def read_any_file(name: str, raw: bytes) -> pd.DataFrame:
                 last_err = e
                 for sep in (";", ",", "\t"):
                     try:
-                        df = pd.read_csv(BytesIO(raw), sep=sep, engine="python", encoding=enc, on_bad_lines="skip")
-                        df.columns = [str(c).strip() for c in df.columns]
-                        return df
+                        return _read_csv(raw, sep, enc)
                     except Exception as e2:
                         last_err = e2
         raise ValueError(f"CSV konnte nicht gelesen werden: {last_err}")
@@ -110,6 +123,7 @@ def read_any_file(name: str, raw: bytes) -> pd.DataFrame:
     except Exception as e:
         raise ValueError(f"Excel konnte nicht gelesen werden: {e}") from e
     df.columns = [str(c).strip() for c in df.columns]
+    df.attrs["bad_lines"] = 0
     return df
 
 
