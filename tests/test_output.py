@@ -42,6 +42,12 @@ class TestBuildClusters:
         assert cl[1].confidence == "prüfen"
         assert cl[2].members == {"de": "https://a.com/de/3"} and cl[2].matches == {}
 
+    def test_unknown_pivot_raises(self, scenario):
+        sets, result = scenario
+        result.pivot_code = "it"
+        with pytest.raises(ValueError, match="Pivot-Sprache 'it' nicht in den Sprachsets"):
+            output.build_clusters(result, sets)
+
 
 class TestXDefaultFallback:
     def test_rules(self):
@@ -133,3 +139,11 @@ class TestHtmlBlocks:
 
     def test_empty(self):
         assert output.html_blocks([], "de", None, "language", include_review=True) == ""
+
+    def test_language_mode_collision_raises(self):
+        c = Cluster("https://a.at/p", {"de-AT": "https://a.at/p", "de-CH": "https://a.ch/p"}, {}, "sicher")
+        with pytest.raises(ValueError, match="Mehrere Varianten derselben Sprache"):
+            output.html_blocks([c], "de-AT", None, "language", include_review=False)
+        # language-region mode should still work
+        out = output.html_blocks([c], "de-AT", None, "language-region", include_review=False)
+        assert 'hreflang="de-AT"' in out and 'hreflang="de-CH"' in out

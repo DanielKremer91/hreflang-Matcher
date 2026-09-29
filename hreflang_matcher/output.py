@@ -11,7 +11,9 @@ NO_MATCH_REASON = "kein Treffer über Threshold"
 
 
 def build_clusters(result: MatchResult, sets: list[LanguageSet]) -> list[Cluster]:
-    pivot = next(s for s in sets if s.code == result.pivot_code)
+    pivot = next((s for s in sets if s.code == result.pivot_code), None)
+    if pivot is None:
+        raise ValueError(f"Pivot-Sprache '{result.pivot_code}' nicht in den Sprachsets.")
     by_pivot: dict[str, dict[str, Match]] = {}
     for m in result.matches:
         by_pivot.setdefault(m.pivot_url, {})[m.other_code] = m
@@ -93,7 +95,18 @@ def html_blocks(
         if cl.confidence == "prüfen" and not include_review:
             continue
         ordered = [pivot_code] + sorted(c for c in cl.members if c != pivot_code)
-        tags = [_tag(format_hreflang_code(c, code_mode), cl.members[c]) for c in ordered]
+        formatted_codes = [format_hreflang_code(c, code_mode) for c in ordered]
+        if code_mode == "language":
+            seen: dict[str, list[str]] = {}
+            for orig, formatted in zip(ordered, formatted_codes):
+                if formatted not in seen:
+                    seen[formatted] = []
+                seen[formatted].append(orig)
+            duplicates = {formatted: codes for formatted, codes in seen.items() if len(codes) > 1}
+            if duplicates:
+                colliding = ", ".join(f"'{code}'" for codes in duplicates.values() for code in codes)
+                raise ValueError(f"Mehrere Varianten derselben Sprache ({colliding}) – bitte Modus 'Sprache-Region' verwenden.")
+        tags = [_tag(formatted_codes[i], cl.members[c]) for i, c in enumerate(ordered)]
         if x_default_code:
             xd_url = cl.members.get(x_default_code, cl.pivot_url)
             tags.append(_tag("x-default", xd_url))
