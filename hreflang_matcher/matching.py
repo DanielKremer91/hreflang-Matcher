@@ -51,3 +51,27 @@ def topk_similarity(
         top_val[r0:r1] = rows_val
         top_idx[r0:r1] = rows_idx
     return top_idx, top_val, col_best_idx
+
+
+def slug_match(pivot: LanguageSet, other: LanguageSet) -> tuple[list[Match], list[int], list[int]]:
+    """Exakter Pfad-Match nach Entfernen des Sprachsegments. Score 1.0, Methode 'slug'."""
+    other_by_key: dict[str, int] = {}
+    for j, u in enumerate(other.norm_urls):
+        other_by_key.setdefault(strip_language(u, other.code), j)
+    matches: list[Match] = []
+    used_other: set[int] = set()
+    rem_p: list[int] = []
+    for i, u in enumerate(pivot.norm_urls):
+        j = other_by_key.get(strip_language(u, pivot.code))
+        if j is not None and j not in used_other:
+            used_other.add(j)
+            matches.append(Match(
+                pivot_url=pivot.urls[i], other_url=other.urls[j], other_code=other.code,
+                score=1.0, method="slug", reciprocal=True,
+                second_url=None, second_score=None, margin=None,
+                confidence="sicher", reason="",
+            ))
+        else:
+            rem_p.append(i)
+    rem_o = [j for j in range(len(other.urls)) if j not in used_other]
+    return matches, rem_p, rem_o

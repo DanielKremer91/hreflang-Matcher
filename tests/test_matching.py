@@ -39,3 +39,34 @@ class TestTopkSimilarity:
         assert top_idx.shape == (0, 2) and col_best.shape == (2,) and (col_best == -1).all()
         top_idx, top_val, col_best = matching.topk_similarity(L, P, k=3)
         assert top_idx.shape == (2, 0) and col_best.shape == (0,)
+
+
+def _ls(code, urls, vectors=None):
+    from hreflang_matcher.io_utils import normalize_url
+    if vectors is None:
+        vectors = np.eye(len(urls), max(len(urls), 4), dtype=np.float32)
+    return LanguageSet(code, code, list(urls), [normalize_url(u) for u in urls], _norm(vectors),
+                       pd.DataFrame(columns=["URL", "Grund"]))
+
+
+class TestSlugMatch:
+    def test_matches_identical_slug_across_language_segment(self):
+        de = _ls("de", ["https://a.com/de/x/", "https://a.com/de/y", "https://a.com/de/only-de"])
+        fr = _ls("fr", ["https://a.com/fr/y", "https://a.com/fr/x", "https://a.com/fr/only-fr"])
+        matches, rem_p, rem_o = matching.slug_match(de, fr)
+        pairs = {(m.pivot_url, m.other_url) for m in matches}
+        assert pairs == {("https://a.com/de/x/", "https://a.com/fr/x"), ("https://a.com/de/y", "https://a.com/fr/y")}
+        assert all(m.method == "slug" and m.score == 1.0 and m.confidence == "sicher" and m.reciprocal for m in matches)
+        assert rem_p == [2] and rem_o == [2]
+
+    def test_subdomain_and_tld(self):
+        de = _ls("de", ["https://a.de/p"])
+        fr = _ls("fr", ["https://fr.a.com/p"])
+        matches, rem_p, rem_o = matching.slug_match(de, fr)
+        assert len(matches) == 1 and rem_p == [] and rem_o == []
+
+    def test_no_matches(self):
+        de = _ls("de", ["https://a.com/de/x"])
+        fr = _ls("fr", ["https://a.com/fr/y"])
+        matches, rem_p, rem_o = matching.slug_match(de, fr)
+        assert matches == [] and rem_p == [0] and rem_o == [0]
