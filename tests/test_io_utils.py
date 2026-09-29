@@ -1,6 +1,4 @@
 import numpy as np
-import pandas as pd
-import pytest
 
 from hreflang_matcher import io_utils
 
@@ -22,6 +20,9 @@ class TestNormalizeUrl:
     def test_empty(self):
         assert io_utils.normalize_url("") == ""
         assert io_utils.normalize_url(None) == ""
+
+    def test_malformed_url(self):
+        assert io_utils.normalize_url("http://[") == "http://["
 
 
 class TestParseVector:
@@ -48,3 +49,9 @@ class TestParseVector:
         assert io_utils.parse_vector(None) is None
         assert io_utils.parse_vector(float("nan")) is None
         assert io_utils.parse_vector("abc") is None
+
+    def test_non_numeric_list(self):
+        assert io_utils.parse_vector(["a", "b"]) is None
+
+    def test_multidimensional_array(self):
+        assert io_utils.parse_vector([[1, 2], [3, 4]]) is None

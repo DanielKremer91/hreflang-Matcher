@@ -5,7 +5,6 @@ import re
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 import numpy as np
-import pandas as pd
 
 TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
@@ -22,26 +21,34 @@ def normalize_url(url) -> str:
         return ""
     if not re.match(r"^https?://", s, re.I):
         s = "https://" + s
-    p = urlparse(s)
-    host = (p.hostname or "").lower()
-    if host.startswith("www."):
-        host = host[4:]
-    path = p.path or "/"
-    if path != "/" and path.endswith("/"):
-        path = path.rstrip("/")
-    qs = sorted(
-        (k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
-        if k.lower() not in TRACKING_PARAMS
-    )
-    query = urlencode(qs)
-    return host + path + ("?" + query if query else "")
+    try:
+        p = urlparse(s)
+        host = (p.hostname or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        path = p.path or "/"
+        if path != "/" and path.endswith("/"):
+            path = path.rstrip("/")
+        qs = sorted(
+            (k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
+            if k.lower() not in TRACKING_PARAMS
+        )
+        query = urlencode(qs)
+        return host + path + ("?" + query if query else "")
+    except ValueError:
+        return str(url or "").strip()
 
 
 def parse_vector(value) -> np.ndarray | None:
     """Parst einen Embedding-Wert (JSON-Array, Zahlenliste, list) zu float32. None wenn nicht lesbar."""
     if isinstance(value, (list, tuple, np.ndarray)):
-        arr = np.asarray(value, dtype=np.float32)
-        return arr if arr.size > 0 else None
+        try:
+            arr = np.asarray(value, dtype=np.float32)
+            if arr.ndim != 1 or arr.size == 0:
+                return None
+            return arr
+        except (ValueError, TypeError):
+            return None
     if value is None:
         return None
     if isinstance(value, float) and np.isnan(value):
