@@ -226,6 +226,7 @@ filter_idx = st.checkbox(
 # ============================================================
 st.subheader("2. Sprachzuordnung und Spaltenerkennung")
 sets: list[LanguageSet] = []
+set_meta: list[dict] = []   # je Sprachvariante: Werte für die Ergebnis-Signatur
 invalid_codes = 0
 
 for src in sources:
@@ -280,6 +281,8 @@ for src in sources:
         if len(ls) == 0:
             st.error("Keine gültigen URLs mit Embeddings in dieser Datei.")
         sets.append(ls)
+        set_meta.append({"key": key, "code": ls.code, "len": len(ls), "dim": ls.dim,
+                         "url_col": url_col, "emb_col": emb_col})
 
 codes = [s.code for s in sets]
 problems: list[str] = []
@@ -338,8 +341,8 @@ with c2:
 # 4. Start & Ergebnisse
 # ============================================================
 signature = (
-    tuple((s.code, len(s), s.dim) for s in sets),
-    pivot_code, threshold, band, min_margin, use_slug, code_mode, x_default_code, include_review,
+    tuple((m["key"], m["code"], m["len"], m["dim"], m["url_col"], m["emb_col"]) for m in set_meta),
+    filter_idx, pivot_code, threshold, band, min_margin, use_slug, code_mode, x_default_code, include_review,
 )
 
 if st.button("Let's Go", type="primary"):

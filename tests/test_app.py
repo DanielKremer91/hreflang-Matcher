@@ -83,3 +83,15 @@ def test_full_run_shows_results_and_downloads():
     assert b"https://a.com/fr/p0/" in res["mapping_csv"]
     assert res["html_bytes"].count(b'hreflang="x-default"') == 6   # 3 Cluster x 2 Mitglieder
     assert not any("geändert" in w.value for w in at.warning)
+
+
+def test_changed_filter_marks_result_as_stale():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _csv("de"), "id-de"), ("fr.csv", _csv("fr"), "id-fr")]
+    at.run()
+    next(b for b in at.button if b.label == "Let's Go").click().run()
+    assert not any("geändert" in w.value for w in at.warning)
+    # Ohne Status-/Indexierbarkeitsspalten ändert der Filter die URL-Zahl nicht, der Lauf ist trotzdem veraltet.
+    next(c for c in at.checkbox if c.label.startswith("Nur URLs mit Status 200")).uncheck().run()
+    assert not at.exception, at.exception
+    assert any("geändert" in w.value for w in at.warning)
