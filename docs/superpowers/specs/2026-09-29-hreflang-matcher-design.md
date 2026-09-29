@@ -73,7 +73,12 @@ class Match:
     score: float              # 1.0 bei Slug-Match, sonst Cosinus
     method: str               # "slug" | "embedding"
     reciprocal: bool          # bester Treffer in beide Richtungen
+    second_url: str | None    # zweitbester Kandidat derselben Sprache
+    second_score: float | None
+    margin: float | None      # score - second_score
     confidence: str           # "sicher" | "prüfen"
+    reason: str               # leer bei "sicher", sonst z. B. "knapp über Threshold",
+                              # "nicht reziprok", "mehrdeutig (Margin 0.01)"
 
 @dataclass
 class MatchResult:
@@ -119,8 +124,12 @@ abgeschnitten“) in `dropped` gemeldet. Über alle `LanguageSet`s muss die
 Dimension gleich sein, sonst harter Fehler mit Hinweis auf gemischte Modelle
 oder Excel-Zellenlimit (32.767 Zeichen).
 
-**Optionale Spalten:** `Status Code` (int) und `Indexability` (Text). Werden
-nur genutzt, wenn der Indexierbarkeits-Schalter aktiv ist (siehe 5.5).
+**Optionale Spalten:** Status-Code (Spaltenname `Status Code` oder
+`Statuscode`) und Indexierbarkeit (`Indexability` oder `Indexierbarkeit`).
+Werden nur genutzt, wenn der Indexierbarkeits-Schalter aktiv ist (siehe 5.5).
+
+**Alle anderen Spalten werden ignoriert.** Screaming-Frog-Exporte mit
+Dutzenden Spalten sind ausdrücklich erlaubt.
 
 **URL-Normalisierung** (für Matching, nie für Ausgabe): Schema entfernen,
 Host lowercase, `www.` entfernen, Fragment entfernen, Tracking-Parameter
@@ -155,18 +164,32 @@ Jede URL wird dem ersten passenden Muster zugeordnet (top-down).
 - **Pivot-Sprache:** Selectbox über die erkannten Codes.
 - **Cosinus-Threshold:** Slider 0.0–1.0, Default 0.80, Schritt 0.01.
 - **Review-Band:** Slider 0.0–0.2, Default 0.05. Treffer mit
-  `threshold <= score < threshold + band` gelten als „prüfen“.
+  `threshold <= score < threshold + band` gelten als „prüfen“, weil sie nur
+  knapp über der Schwelle liegen.
+- **Mindestabstand zum Zweitbesten (Margin):** Slider 0.0–0.2, Default 0.02.
+  Liegt der zweitbeste Kandidat derselben Sprache weniger als diesen Wert
+  unter dem besten, gilt der Treffer als mehrdeutig und wird „prüfen“. Der
+  zweitbeste Kandidat wird mit URL und Score in der Ausgabe genannt.
 - **Slug-Match aktivieren:** Checkbox, Default aus. Läuft vor dem
   Embedding-Matching.
 - **Nur Status 200 und Indexable:** Checkbox, Default an.
+- **hreflang-Codes im Export:** Radio „nur Sprache“ (de, fr) oder
+  „Sprache-Region“ (de-AT, fr-CH). Default: „Sprache-Region“, wenn mindestens
+  ein Code eine Region enthält, sonst „nur Sprache“. Erkennt das Tool zwei
+  Sets mit derselben Sprache (z. B. de und de-AT), wird ein Hinweis
+  angezeigt, dass Sprache-Region nötig ist, und „nur Sprache“ ist nicht
+  wählbar, weil die Codes sonst kollidieren würden. Codes werden normalisiert
+  ausgegeben: Sprache klein, Region groß (de-AT).
 - **x-default:** Selectbox über die Codes plus Option „kein x-default“.
 - **„prüfen“-Cluster in HTML-Export aufnehmen:** Checkbox, Default aus.
 
 ### 5.5 Indexierbarkeits-Filter
 
-Wenn aktiv und die Datei eine Spalte `Status Code` hat: nur Zeilen mit 200.
-Wenn aktiv und Spalte `Indexability` vorhanden: nur Zeilen, deren Wert
-case-insensitiv mit „indexable“ beginnt und nicht „non-indexable“ ist.
+Wenn aktiv und die Datei eine Status-Code-Spalte hat: nur Zeilen mit 200.
+Wenn aktiv und eine Indexierbarkeits-Spalte vorhanden ist: nur Zeilen, deren
+Wert case-insensitiv „indexable“ oder „indexierbar“ ist. Werte wie
+„Non-Indexable“ oder „Nicht indexierbar“ werden ausgeschlossen (Prüfung:
+Wert beginnt mit „indexable“ oder „indexierbar“, nicht mit „non“ oder „nicht“).
 Fehlt eine der Spalten, wird der jeweilige Teilfilter übersprungen und eine
 Warnung je Datei angezeigt. Gefilterte URLs landen in `dropped` mit Grund.
 
@@ -199,10 +222,15 @@ Das ist bei sinnvollen Thresholds praktisch irrelevant und wird akzeptiert.
 
 `reciprocal = (argmax_j S[i, :] == j) and (argmax_i S[:, j] == i)`.
 
-**Konfidenz:**
-- `sicher`, wenn `score >= threshold + band` und `reciprocal`.
-- `prüfen`, wenn `score < threshold + band` oder nicht `reciprocal`.
-- Paare unter `threshold` werden nicht erzeugt.
+**Konfidenz:** Ein Treffer ist `sicher`, wenn alle drei Bedingungen gelten:
+1. `score >= threshold + band` (nicht nur knapp über der Schwelle),
+2. `reciprocal` (bester Treffer in beide Richtungen),
+3. `margin >= min_margin` oder es gibt keinen zweitbesten Kandidaten.
+
+Sonst `prüfen`, und `reason` nennt alle verletzten Bedingungen. Der
+zweitbeste Kandidat wird immer mitgeführt, damit man im Ergebnis sieht,
+welche zwei URLs derselben Sprache eng beieinander lagen. Paare unter
+`threshold` werden nicht erzeugt.
 
 **Unmatched:** alle P- und L-URLs ohne Zuordnung, je Sprache.
 
@@ -218,6 +246,7 @@ Cluster-Konfidenz = „prüfen“, sobald ein Mitglied „prüfen“ ist, sonst
 **Mapping-Tabelle (wide):** Spalten
 `Pivot-URL (<code>)`, dann je andere Sprache
 `URL (<code>)`, `Score (<code>)`, `Methode (<code>)`, `Konfidenz (<code>)`,
+`Grund (<code>)`, `Zweitbeste URL (<code>)`, `Zweitbester Score (<code>)`,
 zuletzt `Cluster-Konfidenz` und `x-default-Fallback` (ja/nein). Eine Zeile je
 Pivot-URL, auch wenn kein einziger Treffer vorliegt (dann leere Zellen).
 
@@ -246,6 +275,8 @@ Regeln:
 - Cluster mit nur einem Mitglied (kein Treffer) erzeugen keinen Block.
 - Cluster mit Konfidenz „prüfen“ nur, wenn der Schalter aktiv ist.
 - `href` ist immer die Original-URL, nie die normalisierte.
+- Der hreflang-Wert folgt dem gewählten Modus (nur Sprache oder
+  Sprache-Region), normalisiert als `de` bzw. `de-AT`.
 - HTML-Escaping der URLs (`&` → `&amp;`).
 
 **Downloads:** `hreflang_mapping.csv`, `hreflang_unmatched.csv`,
@@ -254,9 +285,11 @@ Alle als utf-8-sig bzw. utf-8.
 
 ### 5.8 UI-Ablauf (app.py)
 
-1. Branding-Header (Logo, Titel „ONE hreflang Matcher“, Info-Box, roter
-   Download-Button-Style, Hilfe-Expander mit Erklärung inkl. Hinweis auf
-   multilinguale Embedding-Modelle und Excel-Zellenlimit).
+1. Branding-Header wie bei ONE Link Intelligence: Logo, Titel
+   „ONE hreflang Matcher“, graue Box „Entwickelt von Daniel Kremer von
+   ONE Beyond Search | Folge mir auf LinkedIn …“ mit denselben Links,
+   Trennlinie, roter Download-Button-Style, Hilfe-Expander mit Erklärung
+   inkl. Hinweis auf multilinguale Embedding-Modelle und Excel-Zellenlimit.
 2. Schritt 1 Upload (Modus A/B).
 3. Schritt 2 Sprachzuordnung: Tabelle je Datei bzw. Muster mit Code, Anzahl
    URLs, erkannter Dimension, verworfene Zeilen (Expander mit Details).
@@ -289,13 +322,15 @@ pytest, keine Streamlit-Abhängigkeit:
 - `test_io_utils`: Spaltenerkennung (Name, Inhalt), Vektor-Parsing (JSON,
   Komma, Semikolon, abgeschnitten), Dimensions-Mehrheit, Normalisierung,
   Duplikate.
-- `test_lang_detect`: Code aus Pfad, Subdomain, TLD; Muster-Vorschlag;
-  Split top-down; Restliste.
+- `test_lang_detect`: Code aus Pfad, Subdomain, TLD; Normalisierung
+  (de-at → de-AT); Muster-Vorschlag; Split top-down; Restliste.
 - `test_matching`: Slug-Match mit Sprachsegment; Cosinus auf synthetischen
   Vektoren; Reziprozität; greedy 1:1 bei Konflikt; Threshold und Band;
-  Konfidenz; Unmatched; Blockgrenzen (n > Blockgröße).
+  Konfidenz inkl. Margin und Grund; Zweitbester Kandidat; Unmatched;
+  Blockgrenzen (n > Blockgröße).
 - `test_output`: Wide-Tabelle; Unmatched; HTML-Block mit Selbstreferenz,
-  Reihenfolge, x-default-Fallback, Escaping, „prüfen“-Schalter.
+  Reihenfolge, x-default-Fallback, Escaping, „prüfen“-Schalter; Code-Modus
+  nur Sprache vs. Sprache-Region; Kollisionserkennung (de + de-AT).
 
 ## 7. Abhängigkeiten
 
