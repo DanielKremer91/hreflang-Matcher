@@ -134,6 +134,10 @@ class TestDetectColumns:
         assert io_utils.detect_status_column(df2) == "Status Code"
         assert io_utils.detect_indexability_column(df2) == "Indexability"
 
+    def test_text_status_column_is_not_a_status_code(self):
+        df = pd.DataFrame({"Status": ["OK", "Not Found"], "Address": ["https://a.de/x", "https://a.de/y"]})
+        assert io_utils.detect_status_column(df) is None
+
 
 class TestIsIndexable:
     @pytest.mark.parametrize("v,exp", [

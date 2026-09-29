@@ -20,7 +20,7 @@ _FLOAT_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
 
 URL_COL_NAMES = ["address", "url", "urls", "adresse", "page", "seite", "landing page", "landingpage"]
 EMB_COL_HINTS = ["embed", "vector", "vektor"]
-STATUS_COL_NAMES = ["status code", "statuscode", "status"]
+STATUS_COL_NAMES = ["status code", "statuscode"]
 INDEX_COL_NAMES = ["indexability", "indexierbarkeit"]
 
 
