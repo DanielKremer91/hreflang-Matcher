@@ -206,6 +206,7 @@ filter_idx = st.checkbox(
 # ============================================================
 st.subheader("2. Sprachzuordnung und Spaltenerkennung")
 sets: list[LanguageSet] = []
+invalid_codes = 0
 
 for i, src in enumerate(sources):
     df = src["df"]
@@ -241,6 +242,7 @@ for i, src in enumerate(sources):
         code_n = lang_detect.normalize_code(code)
         if not lang_detect.is_valid_code(code_n):
             st.error("Ungültiger hreflang-Code. Erlaubt: Sprache (de) oder Sprache-Region (de-AT).")
+            invalid_codes += 1
             continue
 
         ls = build_cached(src["name"], src["raw"], code_n, url_col, emb_col, filter_idx, status_col, index_col, src["row_idx"])
@@ -259,6 +261,8 @@ for i, src in enumerate(sources):
 
 codes = [s.code for s in sets]
 problems: list[str] = []
+if invalid_codes > 0:
+    problems.append(f"{invalid_codes} Sprachvariante(n) haben einen ungültigen hreflang-Code.")
 if len(sets) < 2:
     problems.append("Es werden mindestens zwei Sprachvarianten mit gültigem hreflang-Code benötigt.")
 dupes = sorted({c for c in codes if codes.count(c) > 1})
@@ -311,6 +315,11 @@ with c2:
 # ============================================================
 # 4. Start & Ergebnisse
 # ============================================================
+signature = (
+    tuple((s.code, len(s), s.dim) for s in sets),
+    pivot_code, threshold, band, min_margin, use_slug, code_mode, x_default_code, include_review,
+)
+
 if st.button("Let's Go", type="primary"):
     try:
         with st.spinner("Matching läuft …"):
@@ -321,6 +330,7 @@ if st.button("Let's Go", type="primary"):
                 "mapping": output.mapping_table(clusters, codes_sorted, pivot_code, x_default_code),
                 "unmatched": output.unmatched_table(result, sets),
                 "html": output.html_blocks(clusters, pivot_code, x_default_code, code_mode, include_review),
+                "signature": signature,
                 "stats": result.stats,
                 "pivot": pivot_code,
                 "codes": codes_sorted,
@@ -334,13 +344,15 @@ if st.button("Let's Go", type="primary"):
 res = st.session_state.get("result")
 if res:
     st.subheader("4. Ergebnisse")
+    if res.get("signature") != signature:
+        st.warning("Die Einstellungen oder Dateien haben sich seit dem letzten Lauf geändert. Bitte erneut auf „Let's Go“ klicken.")
     mcols = st.columns(len(res["codes"]))
     for col, code in zip(mcols, res["codes"]):
         s = res["stats"].get(code, {})
         if code == res["pivot"]:
             col.metric(f"{code} (Pivot)", f"{s.get('total', 0) - s.get('unmatched', 0)} / {s.get('total', 0)} zugeordnet")
         else:
-            col.metric(code, f"{s.get('slug', 0) + s.get('embedding', 0)} Treffer", f"{s.get('prüfen', 0)} prüfen", delta_color="inverse")
+            col.metric(code, f"{s.get('slug', 0) + s.get('embedding', 0)} Treffer", f"{s.get('prüfen', 0)} prüfen", delta_color="off")
     st.caption(f"{res['n_clusters']} Cluster, davon {res['n_review']} mit Konfidenz „prüfen“.")
 
     st.markdown("#### Zuordnung (Mapping)")
