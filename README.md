@@ -14,6 +14,13 @@ python3 -m venv .venv
 
 Tests: `.venv/bin/python -m pytest`
 
+## Getestete Umgebungen
+
+- Python 3.9 mit streamlit 1.50, pandas 2.3, numpy 2.0
+- Python 3.14 mit streamlit 1.64, pandas 3.0, numpy 2.5 (Streamlit-Cloud-Standard)
+
+Beide Stacks laufen die komplette Testsuite (124 Tests) ohne Warnungen durch.
+
 ## Deployment auf Streamlit Community Cloud
 
 Repository auf GitHub pushen, in Streamlit Cloud „New app" wählen, `app.py` als Main file.
