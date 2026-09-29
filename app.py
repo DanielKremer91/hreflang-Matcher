@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 import pandas as pd
 import streamlit as st
 
@@ -159,6 +161,7 @@ if mode == MODE_MULTI:
             "name": f.name, "raw": raw, "df": df, "row_idx": None, "label": f.name, "code_default": None,
             "key": source_key(MODE_FILE, getattr(f, "file_id", None), raw, None),
         })
+        sources[-1]["file_key"] = sources[-1]["key"]
 else:
     f = st.file_uploader(
         "Gesamtdatei mit allen Sprachvarianten (CSV oder Excel)",
@@ -204,11 +207,14 @@ else:
                 st.warning(f"{len(rest)} URLs passen auf kein Muster und werden nicht gematcht.")
                 with st.expander("URLs ohne Muster anzeigen"):
                     st.dataframe(pd.DataFrame({"URL": [urls_all[i] for i in rest]}), width="stretch", hide_index=True)
+            file_key_all = getattr(f, "file_id", None) or hashlib.md5(raw).hexdigest()
             for code, idxs in groups.items():
                 sources.append({
                     "name": f.name, "raw": raw, "df": df_all.iloc[idxs], "row_idx": tuple(idxs),
                     "label": f"{f.name} · {code}", "code_default": code,
                     "key": source_key(MODE_GROUP, None, raw, code),
+                    # Der Gruppen-Key enthält keine Datei-Identität; sonst bliebe ein Dateitausch unbemerkt.
+                    "file_key": file_key_all,
                 })
 
 if not sources:
@@ -281,7 +287,7 @@ for src in sources:
         if len(ls) == 0:
             st.error("Keine gültigen URLs mit Embeddings in dieser Datei.")
         sets.append(ls)
-        set_meta.append({"key": key, "code": ls.code, "len": len(ls), "dim": ls.dim,
+        set_meta.append({"key": key, "file_key": src["file_key"], "code": ls.code, "len": len(ls), "dim": ls.dim,
                          "url_col": url_col, "emb_col": emb_col})
 
 codes = [s.code for s in sets]
@@ -341,7 +347,7 @@ with c2:
 # 4. Start & Ergebnisse
 # ============================================================
 signature = (
-    tuple((m["key"], m["code"], m["len"], m["dim"], m["url_col"], m["emb_col"]) for m in set_meta),
+    tuple((m["key"], m["file_key"], m["code"], m["len"], m["dim"], m["url_col"], m["emb_col"]) for m in set_meta),
     filter_idx, pivot_code, threshold, band, min_margin, use_slug, code_mode, x_default_code, include_review,
 )
 
@@ -374,6 +380,12 @@ if st.button("Let's Go", type="primary"):
         st.error(str(e))
 
 res = st.session_state.get("result")
+# Ergebnisse einer älteren Codeversion (z. B. nach Hot Reload) können Schlüssel vermissen: verwerfen.
+RESULT_KEYS = ("mapping", "unmatched", "html", "mapping_csv", "unmatched_csv", "html_bytes",
+               "signature", "stats", "pivot", "codes", "n_clusters", "n_review")
+if res is not None and any(k not in res for k in RESULT_KEYS):
+    st.session_state.pop("result", None)
+    res = None
 if res:
     st.subheader("4. Ergebnisse")
     if res.get("signature") != signature:
