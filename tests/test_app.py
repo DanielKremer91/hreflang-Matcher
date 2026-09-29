@@ -68,3 +68,18 @@ def test_bad_csv_lines_are_reported():
     at.run()
     assert not at.exception, at.exception
     assert any("1 fehlerhafte Zeile(n) in de.csv" in w.value for w in at.warning)
+
+
+def test_full_run_shows_results_and_downloads():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _csv("de"), "id-de"), ("fr.csv", _csv("fr"), "id-fr")]
+    at.run()
+    assert not at.exception, at.exception
+    next(b for b in at.button if b.label == "Let's Go").click().run()
+    assert not at.exception, at.exception
+    assert any(h.value == "4. Ergebnisse" for h in at.subheader)
+    res = at.session_state["result"]
+    assert res["mapping_csv"].startswith("﻿".encode("utf-8"))
+    assert b"https://a.com/fr/p0/" in res["mapping_csv"]
+    assert res["html_bytes"].count(b'hreflang="x-default"') == 6   # 3 Cluster x 2 Mitglieder
+    assert not any("geändert" in w.value for w in at.warning)

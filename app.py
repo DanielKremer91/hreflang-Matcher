@@ -96,16 +96,19 @@ FILE_TYPES = ["csv", "xlsx", "xlsm"]
 # ============================================================
 # Gecachte Helfer
 # ============================================================
-@st.cache_data(show_spinner=False)
+# cache_resource gibt dasselbe DataFrame-Objekt ohne Kopie zurück. Es darf deshalb nie verändert
+# werden; Teilmengen immer über .iloc[...] (Kopie) bilden.
+@st.cache_resource(max_entries=8, show_spinner=False)
 def read_cached(name: str, raw: bytes) -> pd.DataFrame:
     return io_utils.read_any_file(name, raw)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(max_entries=16, show_spinner=False)
 def build_cached(
     name: str,
     raw: bytes,
     code: str,
+    label: str,
     url_col: str,
     emb_col: str,
     filter_idx: bool,
@@ -113,10 +116,10 @@ def build_cached(
     index_col: str | None,
     row_idx: tuple[int, ...] | None,
 ) -> LanguageSet:
-    df = io_utils.read_any_file(name, raw)
+    df = read_cached(name, raw)   # Cache-Treffer, kein erneutes Parsen
     if row_idx is not None:
         df = df.iloc[list(row_idx)]
-    return io_utils.build_language_set(df, code, name, url_col, emb_col, filter_idx, status_col, index_col)
+    return io_utils.build_language_set(df, code, label, url_col, emb_col, filter_idx, status_col, index_col)
 
 
 def warn_bad_lines(name: str, df: pd.DataFrame) -> None:
@@ -264,8 +267,8 @@ for src in sources:
             invalid_codes += 1
             continue
 
-        ls = build_cached(src["name"], src["raw"], code_n, url_col, emb_col, filter_idx, status_col, index_col, src["row_idx"])
-        ls.label = src["label"]
+        ls = build_cached(src["name"], src["raw"], code_n, src["label"], url_col, emb_col, filter_idx,
+                          status_col, index_col, src["row_idx"])
 
         m1, m2, m3 = st.columns(3)
         m1.metric("Gültige URLs", len(ls))
@@ -345,10 +348,17 @@ if st.button("Let's Go", type="primary"):
             result = matching.run_matching(sets, pivot_code, threshold, band, min_margin, use_slug)
             clusters = output.build_clusters(result, sets)
             codes_sorted = [pivot_code] + sorted(c for c in codes if c != pivot_code)
+            mapping = output.mapping_table(clusters, codes_sorted, pivot_code, x_default_code)
+            unmatched = output.unmatched_table(result, sets)
+            html_out = output.html_blocks(clusters, pivot_code, x_default_code, code_mode, include_review)
             st.session_state["result"] = {
-                "mapping": output.mapping_table(clusters, codes_sorted, pivot_code, x_default_code),
-                "unmatched": output.unmatched_table(result, sets),
-                "html": output.html_blocks(clusters, pivot_code, x_default_code, code_mode, include_review),
+                "mapping": mapping,
+                "unmatched": unmatched,
+                "html": html_out,
+                # Download-Payloads einmalig beim Lauf erzeugen, nicht bei jedem Rerun.
+                "mapping_csv": mapping.to_csv(index=False).encode("utf-8-sig"),
+                "unmatched_csv": unmatched.to_csv(index=False).encode("utf-8-sig"),
+                "html_bytes": html_out.encode("utf-8"),
                 "signature": signature,
                 "stats": result.stats,
                 "pivot": pivot_code,
@@ -377,16 +387,16 @@ if res:
 
     st.markdown("#### Zuordnung (Mapping)")
     st.dataframe(res["mapping"], width="stretch", hide_index=True)
-    st.download_button("📥 Mapping als CSV herunterladen", res["mapping"].to_csv(index=False).encode("utf-8-sig"),
-                       "hreflang_mapping.csv", "text/csv", key="dl_map")
+    st.download_button("📥 Mapping als CSV herunterladen", res["mapping_csv"],
+                       "hreflang_mapping.csv", "text/csv", key="dl_map", on_click="ignore")
 
     st.markdown("#### URLs ohne Zuordnung")
     if res["unmatched"].empty:
         st.success("Alle URLs wurden zugeordnet.")
     else:
         st.dataframe(res["unmatched"], width="stretch", hide_index=True)
-        st.download_button("📥 URLs ohne Zuordnung als CSV herunterladen", res["unmatched"].to_csv(index=False).encode("utf-8-sig"),
-                           "hreflang_unmatched.csv", "text/csv", key="dl_unmatched")
+        st.download_button("📥 URLs ohne Zuordnung als CSV herunterladen", res["unmatched_csv"],
+                           "hreflang_unmatched.csv", "text/csv", key="dl_unmatched", on_click="ignore")
 
     st.markdown("#### hreflang-HTML")
     if not res["html"]:
@@ -395,5 +405,5 @@ if res:
         blocks = res["html"].strip().split("\n\n")
         st.code("\n\n".join(blocks[:3]), language="html")
         st.caption(f"Vorschau der ersten {min(3, len(blocks))} von {len(blocks)} Blöcken. Die Datei enthält alle.")
-        st.download_button("📥 hreflang-Tags als HTML-Datei herunterladen", res["html"].encode("utf-8"),
-                           "hreflang_tags.html", "text/html", key="dl_html")
+        st.download_button("📥 hreflang-Tags als HTML-Datei herunterladen", res["html_bytes"],
+                           "hreflang_tags.html", "text/html", key="dl_html", on_click="ignore")

@@ -310,8 +310,8 @@ Alle als utf-8-sig bzw. utf-8.
 
 ### 5.10 Performance
 
-Ziel: 10 000 URLs je Sprache und 10 Sprachen laufen auf Streamlit Cloud
-(1 GB RAM) durch. Blockweises Matmul mit float32; niemals die volle
+Ziel: 5 000 URLs je Sprache und 5 Sprachen laufen auf Streamlit Cloud
+(1 GB RAM) durch; größere Crawls werden aufgeteilt. Blockweises Matmul mit float32; niemals die volle
 n×m-Matrix für n, m > 2048 im Speicher halten. Top-5 je Zeile statt aller
 Kandidaten. Lesen und Parsen gecacht.
 

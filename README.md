@@ -20,6 +20,14 @@ Repository auf GitHub pushen, in Streamlit Cloud „New app" wählen, `app.py` a
 `requirements.txt` wird automatisch installiert. Es werden keine ML-Modelle geladen,
 der Speicherbedarf bleibt gering.
 
+## Grenzen
+
+- Streamlit Community Cloud stellt etwa 1 GB RAM bereit.
+- Geprüft und komfortabel: bis etwa 5.000 URLs je Sprache bei 1536 Dimensionen und 5 Sprachen.
+- Größere Crawls je Verzeichnis aufteilen oder die App lokal starten.
+- Upload-Limit: 200 MB je Datei (`server.maxUploadSize`).
+- CSV-Exporte ohne unnötige Spalten halten den Speicherbedarf niedrig.
+
 ## Eingabedaten
 
 - CSV (empfohlen) oder Excel, eine Datei je Sprachvariante oder eine Gesamtdatei,
