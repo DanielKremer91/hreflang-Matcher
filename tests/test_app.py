@@ -21,8 +21,10 @@ def _fake_uploader(*args, **kwargs):
         return [_FakeUpload(*t) for t in st.session_state.get("_fake_files", [])]
     return None
 st.file_uploader = _fake_uploader
+with open({APP!r}, encoding="utf-8") as _fh:
+    _src = _fh.read()
 try:
-    exec(compile(open({APP!r}, encoding="utf-8").read(), {APP!r}, "exec"))
+    exec(compile(_src, {APP!r}, "exec"))
 finally:
     st.file_uploader = _orig_uploader
 '''
