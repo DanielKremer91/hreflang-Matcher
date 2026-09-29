@@ -56,6 +56,9 @@ def test_full_pipeline_two_languages():
     clusters = output.build_clusters(result, sets)
     mapping = output.mapping_table(clusters, ["de", "fr"], "de", "de")
     assert len(mapping) == 3
+    conf = dict(zip(mapping["Pivot-URL (de)"], mapping["Cluster-Konfidenz"]))
+    assert conf["https://a.com/de/nur-deutsch/"] == "kein Treffer"
+    assert conf["https://a.com/de/produkt-1/"] == "sicher"
     unmatched = output.unmatched_table(result, sets)
     assert ("de", "https://a.com/de/geloescht/", "Status Code 404") in set(map(tuple, unmatched.values.tolist()))
     html = output.html_blocks(clusters, "de", "de", "language", include_review=False)

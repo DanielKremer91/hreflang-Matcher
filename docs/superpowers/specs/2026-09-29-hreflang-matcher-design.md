@@ -248,7 +248,8 @@ Cluster-Konfidenz = „prüfen“, sobald ein Mitglied „prüfen“ ist, sonst
 `URL (<code>)`, `Score (<code>)`, `Methode (<code>)`, `Konfidenz (<code>)`,
 `Grund (<code>)`, `Zweitbeste URL (<code>)`, `Zweitbester Score (<code>)`,
 zuletzt `Cluster-Konfidenz` und `x-default-Fallback` (ja/nein). Eine Zeile je
-Pivot-URL, auch wenn kein einziger Treffer vorliegt (dann leere Zellen).
+Pivot-URL, auch wenn kein einziger Treffer vorliegt (dann leere Zellen und
+`Cluster-Konfidenz` = „kein Treffer“).
 
 **Unmatched-Tabelle (long):** Spalten `Sprache`, `URL`, `Grund`
 („kein Treffer über Threshold“ oder Verwerfungsgrund aus `dropped`).

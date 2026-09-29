@@ -72,7 +72,7 @@ aufgeteilt wird.
 
 **So funktioniert die Zuordnung:** Für jede Pivot-URL werden die fünf ähnlichsten URLs je Sprache über dem
 Threshold gesammelt. Alle Kandidatenpaare werden nach Score sortiert und von oben abgearbeitet. Ein Paar wird
-übernommen, wenn beide URLs noch frei sind. So bekommt jede URL genau einen Partner je Sprache (1:1).
+übernommen, wenn beide URLs noch frei sind. So bekommt jede URL höchstens einen Partner je Sprache (1:1).
 
 **Konfidenz:** Ein Treffer ist *sicher*, wenn er deutlich über dem Threshold liegt (außerhalb des
 Review-Bands), *reziprok* ist (beide URLs sind gegenseitig der beste Treffer) und der zweitbeste Kandidat
@@ -260,7 +260,7 @@ for src in sources:
         if filter_idx:
             missing = [n for n, c in (("Status-Code", status_col), ("Indexierbarkeit", index_col)) if c is None]
             if missing:
-                st.caption(f"Hinweis: Spalte {' und '.join(missing)} nicht gefunden, dieser Teilfilter wird übersprungen.")
+                st.warning(f"Spalte {' und '.join(missing)} nicht gefunden, dieser Teilfilter wird übersprungen.")
 
         code_n = lang_detect.normalize_code(code)
         if not lang_detect.is_valid_code(code_n):

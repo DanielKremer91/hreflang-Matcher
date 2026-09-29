@@ -78,7 +78,7 @@ class TestMappingTable:
         assert r1["Zweitbeste URL (fr)"] == "https://a.com/fr/x" and r1["Zweitbester Score (fr)"] == 0.81
         assert r1["URL (en)"] == "" and r1["x-default-Fallback"] == "ja"
         r2 = df.iloc[2]
-        assert r2["URL (fr)"] == "" and r2["Cluster-Konfidenz"] == "sicher" and r2["x-default-Fallback"] == "nein"
+        assert r2["URL (fr)"] == "" and r2["Cluster-Konfidenz"] == "kein Treffer" and r2["x-default-Fallback"] == "nein"
 
 
 class TestUnmatchedTable:

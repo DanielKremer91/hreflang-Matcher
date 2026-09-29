@@ -8,6 +8,7 @@ from .lang_detect import language_of, normalize_code
 from .models import Cluster, LanguageSet, Match, MatchResult
 
 NO_MATCH_REASON = "kein Treffer über Threshold"
+NO_MATCH_CONFIDENCE = "kein Treffer"
 
 
 def build_clusters(result: MatchResult, sets: list[LanguageSet]) -> list[Cluster]:
@@ -57,7 +58,7 @@ def mapping_table(
             row[f"Grund ({c})"] = m.reason if m else ""
             row[f"Zweitbeste URL ({c})"] = (m.second_url or "") if m else ""
             row[f"Zweitbester Score ({c})"] = m.second_score if m else None
-        row["Cluster-Konfidenz"] = cl.confidence
+        row["Cluster-Konfidenz"] = cl.confidence if cl.matches else NO_MATCH_CONFIDENCE
         row["x-default-Fallback"] = "ja" if x_default_fallback(cl, x_default_code) else "nein"
         rows.append(row)
     return pd.DataFrame(rows, columns=cols)
