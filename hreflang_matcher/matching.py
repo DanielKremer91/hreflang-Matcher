@@ -141,3 +141,48 @@ def embedding_match(
             reason="; ".join(reasons),
         ))
     return matches
+
+
+def run_matching(
+    sets: list[LanguageSet],
+    pivot_code: str,
+    threshold: float,
+    band: float,
+    min_margin: float,
+    use_slug: bool,
+    k: int = 5,
+) -> MatchResult:
+    """Matcht jede Nicht-Pivot-Sprache gegen die Pivot-Sprache."""
+    pivot = next((s for s in sets if s.code == pivot_code), None)
+    if pivot is None:
+        raise ValueError(f"Pivot-Sprache '{pivot_code}' nicht in den Sprachsets.")
+
+    matches: list[Match] = []
+    unmatched: dict[str, list[str]] = {}
+    stats: dict[str, dict[str, int]] = {}
+    pivot_matched: set[str] = set()
+
+    for other in sets:
+        if other.code == pivot_code:
+            continue
+        if use_slug:
+            slug, rem_p, rem_o = slug_match(pivot, other)
+        else:
+            slug, rem_p, rem_o = [], list(range(len(pivot))), list(range(len(other)))
+        emb = embedding_match(pivot, other, rem_p, rem_o, threshold, band, min_margin, k)
+        all_m = slug + emb
+        matches.extend(all_m)
+        matched_o = {m.other_url for m in all_m}
+        pivot_matched |= {m.pivot_url for m in all_m}
+        unmatched[other.code] = [u for u in other.urls if u not in matched_o]
+        stats[other.code] = {
+            "slug": len(slug),
+            "embedding": len(emb),
+            "sicher": sum(1 for m in all_m if m.confidence == "sicher"),
+            "prüfen": sum(1 for m in all_m if m.confidence == "prüfen"),
+            "unmatched": len(unmatched[other.code]),
+        }
+
+    unmatched[pivot_code] = [u for u in pivot.urls if u not in pivot_matched]
+    stats[pivot_code] = {"total": len(pivot), "unmatched": len(unmatched[pivot_code])}
+    return MatchResult(pivot_code=pivot_code, matches=matches, unmatched=unmatched, stats=stats)

@@ -140,3 +140,35 @@ class TestEmbeddingMatch:
         de, fr = self._sets()
         assert matching.embedding_match(de, fr, [], [0], threshold=0.5, band=0.0, min_margin=0.0) == []
         assert matching.embedding_match(de, fr, [0], [], threshold=0.5, band=0.0, min_margin=0.0) == []
+
+
+class TestRunMatching:
+    def _sets(self):
+        de = _ls("de", ["https://a.com/de/x", "https://a.com/de/y", "https://a.com/de/z"],
+                 np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], dtype=np.float32))
+        fr = _ls("fr", ["https://a.com/fr/x", "https://a.com/fr/other"],
+                 np.array([[0, 0, 0, 1], [0, 1, 0.1, 0]], dtype=np.float32))   # fr/x nur per Slug findbar
+        en = _ls("en", ["https://a.com/en/z"], np.array([[0, 0, 1, 0]], dtype=np.float32))
+        return [de, fr, en]
+
+    def test_with_slug(self):
+        res = matching.run_matching(self._sets(), "de", threshold=0.8, band=0.0, min_margin=0.0, use_slug=True)
+        assert res.pivot_code == "de"
+        pairs = {(m.pivot_url, m.other_code): (m.other_url, m.method) for m in res.matches}
+        assert pairs[("https://a.com/de/x", "fr")] == ("https://a.com/fr/x", "slug")
+        assert pairs[("https://a.com/de/y", "fr")] == ("https://a.com/fr/other", "embedding")
+        assert pairs[("https://a.com/de/z", "en")] == ("https://a.com/en/z", "slug")
+        assert res.unmatched["fr"] == [] and res.unmatched["en"] == []
+        assert res.unmatched["de"] == []
+        assert res.stats["fr"] == {"slug": 1, "embedding": 1, "sicher": 2, "prüfen": 0, "unmatched": 0}
+        assert res.stats["de"] == {"total": 3, "unmatched": 0}
+
+    def test_without_slug(self):
+        res = matching.run_matching(self._sets(), "de", threshold=0.8, band=0.0, min_margin=0.0, use_slug=False)
+        assert all(m.method == "embedding" for m in res.matches)
+        assert res.unmatched["fr"] == ["https://a.com/fr/x"]
+        assert res.unmatched["de"] == ["https://a.com/de/x"]
+
+    def test_unknown_pivot_raises(self):
+        with pytest.raises(ValueError):
+            matching.run_matching(self._sets(), "it", threshold=0.8, band=0.0, min_margin=0.0, use_slug=False)
