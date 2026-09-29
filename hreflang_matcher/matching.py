@@ -28,7 +28,8 @@ def topk_similarity(
         rows_idx = top_idx[r0:r1].copy()
         for c0 in range(0, m, col_block):
             c1 = min(c0 + col_block, m)
-            S = P[r0:r1] @ L[c0:c1].T                      # (b, c)
+            with np.errstate(all="ignore"):
+                S = P[r0:r1] @ L[c0:c1].T                      # (b, c)
             # bester Pivot je Spalte
             blk_arg = S.argmax(axis=0)
             blk_max = S[blk_arg, np.arange(c1 - c0)]

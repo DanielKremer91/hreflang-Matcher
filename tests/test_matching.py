@@ -16,7 +16,8 @@ class TestTopkSimilarity:
         rng = np.random.default_rng(0)
         P = _norm(rng.normal(size=(50, 16)))
         L = _norm(rng.normal(size=(70, 16)))
-        S = P @ L.T
+        with np.errstate(all="ignore"):
+            S = (P.astype(np.float64) @ L.astype(np.float64).T).astype(np.float32)
         top_idx, top_val, col_best = matching.topk_similarity(P, L, k=5, row_block=7, col_block=11)
         exp_idx = np.argsort(-S, axis=1)[:, :5]
         np.testing.assert_array_equal(top_idx, exp_idx)
