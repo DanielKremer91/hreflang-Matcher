@@ -174,7 +174,7 @@ else:
                 columns=["Muster", "hreflang-Code", "Beispiel", "URLs"],
             )
             edited = st.data_editor(
-                default_rows, num_rows="dynamic", use_container_width=True,
+                default_rows, num_rows="dynamic", width="stretch",
                 disabled=["Beispiel", "URLs"], key="pattern_editor",
             )
             patterns = [(_clean(r["Muster"]), _clean(r["hreflang-Code"])) for _, r in edited.iterrows()]
@@ -184,7 +184,7 @@ else:
             if rest:
                 st.warning(f"{len(rest)} URLs passen auf kein Muster und werden nicht gematcht.")
                 with st.expander("URLs ohne Muster anzeigen"):
-                    st.dataframe(pd.DataFrame({"URL": [urls_all[i] for i in rest]}), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame({"URL": [urls_all[i] for i in rest]}), width="stretch", hide_index=True)
             for code, idxs in groups.items():
                 sources.append({
                     "name": f.name, "raw": raw, "df": df_all.iloc[idxs], "row_idx": tuple(idxs),
@@ -254,7 +254,7 @@ for i, src in enumerate(sources):
         m3.metric("Verworfen", len(ls.dropped))
         if len(ls.dropped):
             with st.expander(f"Verworfene Zeilen ({len(ls.dropped)})"):
-                st.dataframe(ls.dropped, use_container_width=True, hide_index=True)
+                st.dataframe(ls.dropped, width="stretch", hide_index=True)
         if len(ls) == 0:
             st.error("Keine gültigen URLs mit Embeddings in dieser Datei.")
         sets.append(ls)
@@ -352,11 +352,12 @@ if res:
         if code == res["pivot"]:
             col.metric(f"{code} (Pivot)", f"{s.get('total', 0) - s.get('unmatched', 0)} / {s.get('total', 0)} zugeordnet")
         else:
-            col.metric(code, f"{s.get('slug', 0) + s.get('embedding', 0)} Treffer", f"{s.get('prüfen', 0)} prüfen", delta_color="off")
+            col.metric(code, f"{s.get('slug', 0) + s.get('embedding', 0)} Treffer")
+            col.caption(f"{s.get('prüfen', 0)} prüfen")
     st.caption(f"{res['n_clusters']} Cluster, davon {res['n_review']} mit Konfidenz „prüfen“.")
 
     st.markdown("#### Zuordnung (Mapping)")
-    st.dataframe(res["mapping"], use_container_width=True, hide_index=True)
+    st.dataframe(res["mapping"], width="stretch", hide_index=True)
     st.download_button("📥 Mapping als CSV herunterladen", res["mapping"].to_csv(index=False).encode("utf-8-sig"),
                        "hreflang_mapping.csv", "text/csv", key="dl_map")
 
@@ -364,7 +365,7 @@ if res:
     if res["unmatched"].empty:
         st.success("Alle URLs wurden zugeordnet.")
     else:
-        st.dataframe(res["unmatched"], use_container_width=True, hide_index=True)
+        st.dataframe(res["unmatched"], width="stretch", hide_index=True)
         st.download_button("📥 URLs ohne Zuordnung als CSV herunterladen", res["unmatched"].to_csv(index=False).encode("utf-8-sig"),
                            "hreflang_unmatched.csv", "text/csv", key="dl_unmatched")
 
