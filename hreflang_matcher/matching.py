@@ -76,3 +76,68 @@ def slug_match(pivot: LanguageSet, other: LanguageSet) -> tuple[list[Match], lis
             rem_p.append(i)
     rem_o = [j for j in range(len(other.urls)) if j not in used_other]
     return matches, rem_p, rem_o
+
+
+def embedding_match(
+    pivot: LanguageSet,
+    other: LanguageSet,
+    rem_p: list[int],
+    rem_o: list[int],
+    threshold: float,
+    band: float,
+    min_margin: float,
+    k: int = 5,
+) -> list[Match]:
+    """Cosinus-Matching mit greedy 1:1-Zuordnung, Reziprozitäts- und Margin-Prüfung."""
+    if not rem_p or not rem_o:
+        return []
+    P = pivot.vectors[rem_p]
+    L = other.vectors[rem_o]
+    top_idx, top_val, col_best = topk_similarity(P, L, k=k)
+
+    cands: list[tuple[float, int, int]] = []
+    for a in range(top_idx.shape[0]):
+        for r in range(top_idx.shape[1]):
+            v = float(top_val[a, r])
+            if top_idx[a, r] >= 0 and v >= threshold:
+                cands.append((v, a, int(top_idx[a, r])))
+    cands.sort(key=lambda t: (-t[0], t[1], t[2]))
+
+    used_a: set[int] = set()
+    used_b: set[int] = set()
+    matches: list[Match] = []
+    for score, a, b in cands:
+        if a in used_a or b in used_b:
+            continue
+        used_a.add(a)
+        used_b.add(b)
+
+        reciprocal = int(top_idx[a, 0]) == b and int(col_best[b]) == a
+
+        second_url = second_score = margin = None
+        for r in range(top_idx.shape[1]):
+            j = int(top_idx[a, r])
+            if j >= 0 and j != b and np.isfinite(top_val[a, r]):
+                second_score = float(top_val[a, r])
+                second_url = other.urls[rem_o[j]]
+                margin = score - second_score
+                break
+
+        reasons: list[str] = []
+        if score < threshold + band:
+            reasons.append(f"knapp über Threshold ({score:.3f})")
+        if not reciprocal:
+            reasons.append("nicht reziprok")
+        if margin is not None and margin < min_margin:
+            reasons.append(f"mehrdeutig (Margin {margin:.3f})")
+
+        matches.append(Match(
+            pivot_url=pivot.urls[rem_p[a]], other_url=other.urls[rem_o[b]], other_code=other.code,
+            score=round(score, 4), method="embedding", reciprocal=reciprocal,
+            second_url=second_url,
+            second_score=None if second_score is None else round(second_score, 4),
+            margin=None if margin is None else round(margin, 4),
+            confidence="sicher" if not reasons else "prüfen",
+            reason="; ".join(reasons),
+        ))
+    return matches
