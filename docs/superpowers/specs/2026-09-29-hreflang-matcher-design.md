@@ -193,6 +193,10 @@ Pivot-Zeile, um Speicher zu begrenzen. Kandidaten werden nach Score
 absteigend sortiert und **greedy 1:1** zugeordnet: ein Paar wird
 übernommen, wenn weder i noch j bereits vergeben sind.
 
+Bekannte Einschränkung: Durch die Top-5-Grenze kann eine Pivot-URL ohne
+Zuordnung bleiben, obwohl ein sechstbester Kandidat noch frei gewesen wäre.
+Das ist bei sinnvollen Thresholds praktisch irrelevant und wird akzeptiert.
+
 `reciprocal = (argmax_j S[i, :] == j) and (argmax_i S[:, j] == i)`.
 
 **Konfidenz:**
@@ -214,8 +218,8 @@ Cluster-Konfidenz = „prüfen“, sobald ein Mitglied „prüfen“ ist, sonst
 **Mapping-Tabelle (wide):** Spalten
 `Pivot-URL (<code>)`, dann je andere Sprache
 `URL (<code>)`, `Score (<code>)`, `Methode (<code>)`, `Konfidenz (<code>)`,
-zuletzt `Cluster-Konfidenz`. Eine Zeile je Pivot-URL, auch wenn kein
-einziger Treffer vorliegt (dann leere Zellen).
+zuletzt `Cluster-Konfidenz` und `x-default-Fallback` (ja/nein). Eine Zeile je
+Pivot-URL, auch wenn kein einziger Treffer vorliegt (dann leere Zellen).
 
 **Unmatched-Tabelle (long):** Spalten `Sprache`, `URL`, `Grund`
 („kein Treffer über Threshold“ oder Verwerfungsgrund aus `dropped`).
