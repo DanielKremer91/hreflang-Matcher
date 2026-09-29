@@ -5,6 +5,7 @@ import streamlit as st
 
 from hreflang_matcher import io_utils, lang_detect, matching, output
 from hreflang_matcher.models import LanguageSet
+from hreflang_matcher.ui_keys import MODE_FILE, MODE_GROUP, source_key
 
 # ============================================================
 # Seite & Branding
@@ -144,7 +145,10 @@ if mode == MODE_MULTI:
         except ValueError as e:
             st.error(f"{f.name}: {e}")
             continue
-        sources.append({"name": f.name, "raw": raw, "df": df, "row_idx": None, "label": f.name, "code_default": None})
+        sources.append({
+            "name": f.name, "raw": raw, "df": df, "row_idx": None, "label": f.name, "code_default": None,
+            "key": source_key(MODE_FILE, getattr(f, "file_id", None), raw, None),
+        })
 else:
     f = st.file_uploader(
         "Gesamtdatei mit allen Sprachvarianten (CSV oder Excel)",
@@ -177,6 +181,10 @@ else:
                 default_rows, num_rows="dynamic", width="stretch",
                 disabled=["Beispiel", "URLs"], key="pattern_editor",
             )
+            st.caption(
+                "Tipp: Eine letzte Zeile mit Muster `.` und dem Code der Standardsprache fängt alle übrigen URLs auf "
+                "(z. B. Root-URLs ohne Sprachpräfix)."
+            )
             patterns = [(_clean(r["Muster"]), _clean(r["hreflang-Code"])) for _, r in edited.iterrows()]
             groups, rest, invalid = lang_detect.split_by_patterns(urls_all, patterns)
             for p in invalid:
@@ -189,6 +197,7 @@ else:
                 sources.append({
                     "name": f.name, "raw": raw, "df": df_all.iloc[idxs], "row_idx": tuple(idxs),
                     "label": f"{f.name} · {code}", "code_default": code,
+                    "key": source_key(MODE_GROUP, None, raw, code),
                 })
 
 if not sources:
@@ -208,9 +217,9 @@ st.subheader("2. Sprachzuordnung und Spaltenerkennung")
 sets: list[LanguageSet] = []
 invalid_codes = 0
 
-for i, src in enumerate(sources):
+for src in sources:
     df = src["df"]
-    key = f"src{i}"
+    key = src["key"]
     with st.container(border=True):
         st.markdown(f"**{src['label']}** – {len(df)} Zeilen")
         cols = list(df.columns)
@@ -219,14 +228,16 @@ for i, src in enumerate(sources):
         status_col = io_utils.detect_status_column(df)
         index_col = io_utils.detect_indexability_column(df)
 
-        if src["code_default"] is not None:
-            code_default = src["code_default"]
-        else:
-            code_default = lang_detect.suggest_code(df[url_guess].astype(str).tolist()) if url_guess else ""
-
         c1, c2, c3 = st.columns([1, 2, 2])
         with c1:
-            code = st.text_input("hreflang-Code", value=code_default, key=f"{key}_code", help="z. B. de, de-AT, fr-CH")
+            if src["code_default"] is not None:
+                # Modus Gesamtdatei: einzige Quelle für den Code ist die Mustertabelle.
+                code = src["code_default"]
+                st.text_input("hreflang-Code", value=code, disabled=True, key=f"{key}_code",
+                              help="Wird in der Mustertabelle oben festgelegt.")
+            else:
+                code_default = lang_detect.suggest_code(df[url_guess].astype(str).tolist()) if url_guess else ""
+                code = st.text_input("hreflang-Code", value=code_default, key=f"{key}_code", help="z. B. de, de-AT, fr-CH")
         with c2:
             url_col = st.selectbox("URL-Spalte", cols, index=cols.index(url_guess) if url_guess in cols else 0, key=f"{key}_url")
         with c3:
