@@ -67,6 +67,23 @@ def mapping_table(
     return pd.DataFrame(rows, columns=cols)
 
 
+def lean_mapping_table(clusters: list[Cluster], codes: list[str], pivot_code: str) -> pd.DataFrame:
+    """Kompakte Zuordnung: Pivot-URL, je Sprache nur URL und Cosinus-Score."""
+    others = [c for c in codes if c != pivot_code]
+    cols = [f"Pivot-URL ({pivot_code})"]
+    for c in others:
+        cols += [f"URL ({c})", f"Score ({c})"]
+    rows = []
+    for cl in clusters:
+        row = {cols[0]: cl.pivot_url}
+        for c in others:
+            m = cl.matches.get(c)
+            row[f"URL ({c})"] = m.other_url if m else ""
+            row[f"Score ({c})"] = m.score if m else None
+        rows.append(row)
+    return pd.DataFrame(rows, columns=cols)
+
+
 def unmatched_table(result: MatchResult, sets: list[LanguageSet]) -> pd.DataFrame:
     rows = []
     for s in sets:

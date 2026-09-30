@@ -83,6 +83,9 @@ def test_full_run_shows_results_and_downloads():
     assert res["mapping_csv"].startswith("﻿".encode("utf-8"))
     assert b"https://a.com/fr/p0/" in res["mapping_csv"]
     assert res["html_bytes"].count(b'hreflang="x-default"') == 6   # 3 Cluster x 2 Mitglieder
+    lean = res["lean_csv"].decode("utf-8-sig").splitlines()
+    assert lean[0] == "Pivot-URL (de),URL (fr),Score (fr)"
+    assert b"https://a.com/fr/p0/" in res["lean_csv"]
     assert not any("geändert" in w.value for w in at.warning)
 
 

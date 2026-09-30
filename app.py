@@ -368,6 +368,8 @@ if st.button("Let's Go", type="primary"):
                 "html": html_out,
                 # Download-Payloads einmalig beim Lauf erzeugen, nicht bei jedem Rerun.
                 "mapping_csv": mapping.to_csv(index=False).encode("utf-8-sig"),
+                "lean_csv": output.lean_mapping_table(clusters, codes_sorted, pivot_code)
+                .to_csv(index=False).encode("utf-8-sig"),
                 "unmatched_csv": unmatched.to_csv(index=False).encode("utf-8-sig"),
                 "html_bytes": html_out.encode("utf-8"),
                 "signature": signature,
@@ -383,7 +385,7 @@ if st.button("Let's Go", type="primary"):
 
 res = st.session_state.get("result")
 # Ergebnisse einer älteren Codeversion (z. B. nach Hot Reload) können Schlüssel vermissen: verwerfen.
-RESULT_KEYS = ("mapping", "unmatched", "html", "mapping_csv", "unmatched_csv", "html_bytes",
+RESULT_KEYS = ("mapping", "unmatched", "html", "mapping_csv", "lean_csv", "unmatched_csv", "html_bytes",
                "signature", "stats", "pivot", "codes", "n_clusters", "n_review")
 if res is not None and any(k not in res for k in RESULT_KEYS):
     st.session_state.pop("result", None)
@@ -404,8 +406,13 @@ if res:
 
     st.markdown("#### Zuordnung (Mapping)")
     st.dataframe(res["mapping"], width="stretch", hide_index=True)
-    st.download_button("📥 Mapping als CSV herunterladen", res["mapping_csv"],
-                       "hreflang_mapping.csv", "text/csv", key="dl_map", on_click="ignore")
+    d1, d2 = st.columns(2)
+    d1.download_button("📥 Mapping als CSV herunterladen", res["mapping_csv"],
+                       "hreflang_mapping.csv", "text/csv", key="dl_map", on_click="ignore",
+                       help="Alle Spalten: Methode, Konfidenz, Grund, zweitbester Kandidat, bevorzugte Pivot-URL.")
+    d2.download_button("📥 Kompaktes Mapping als CSV (nur URLs + Score)", res["lean_csv"],
+                       "hreflang_mapping_kompakt.csv", "text/csv", key="dl_lean", on_click="ignore",
+                       help="Nur Pivot-URL sowie je Sprache die zugeordnete URL und der Cosinus-Score.")
 
     st.markdown("#### URLs ohne Zuordnung")
     if res["unmatched"].empty:
