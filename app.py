@@ -71,6 +71,10 @@ aufgeteilt wird.
 - Alle Dateien müssen mit **demselben Modell** erzeugt sein (gleiche Dimension).
 - **Excel schneidet Zellen bei 32.767 Zeichen ab.** Bei 1536 Dimensionen ist das knapp, bei 3072 werden
   Vektoren zerstört. Nutze CSV. Abgeschnittene Vektoren werden erkannt und verworfen, nicht repariert.
+- **Leere Embeddings** entstehen, wenn Screaming Frog die Anfrage nicht ausführen konnte, etwa weil der
+  Seitentext das Kontextfenster des Modells sprengt („input length exceeds the context length“). Der
+  Grund aus der Spalte „Prompt Request Status“ steht bei den verworfenen Zeilen. Abhilfe: in Screaming Frog
+  den übergebenen Text kürzen (z. B. nur Main Content oder die ersten Zeichen) und diese URLs neu crawlen.
 
 **So funktioniert die Zuordnung:** Für jede Pivot-URL werden die fünf ähnlichsten URLs je Sprache über dem
 Threshold gesammelt. Alle Kandidatenpaare werden nach Score sortiert und von oben abgearbeitet. Ein Paar wird
@@ -119,11 +123,13 @@ def build_cached(
     status_col: str | None,
     index_col: str | None,
     row_idx: tuple[int, ...] | None,
+    note_col: str | None = None,
 ) -> LanguageSet:
     df = read_cached(name, raw)   # Cache-Treffer, kein erneutes Parsen
     if row_idx is not None:
         df = df.iloc[list(row_idx)]
-    return io_utils.build_language_set(df, code, label, url_col, emb_col, filter_idx, status_col, index_col)
+    return io_utils.build_language_set(df, code, label, url_col, emb_col, filter_idx, status_col, index_col,
+                                       note_col=note_col)
 
 
 def warn_bad_lines(name: str, df: pd.DataFrame) -> None:
@@ -277,7 +283,7 @@ for src in sources:
             continue
 
         ls = build_cached(src["name"], src["raw"], code_n, src["label"], url_col, emb_col, filter_idx,
-                          status_col, index_col, src["row_idx"])
+                          status_col, index_col, src["row_idx"], io_utils.detect_note_column(df))
 
         m1, m2, m3 = st.columns(3)
         m1.metric("Gültige URLs", len(ls))

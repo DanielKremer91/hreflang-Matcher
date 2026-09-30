@@ -22,6 +22,8 @@ URL_COL_NAMES = ["address", "url", "urls", "adresse", "page", "seite", "landing 
 EMB_COL_HINTS = ["embed", "vector", "vektor"]
 STATUS_COL_NAMES = ["status code", "statuscode"]
 INDEX_COL_NAMES = ["indexability", "indexierbarkeit"]
+# Screaming Frog schreibt den Status der Embedding-Anfrage in diese Spalte.
+NOTE_COL_NAMES = ["prompt request status", "request status", "prompt status"]
 
 
 def normalize_url(url) -> str:
@@ -189,6 +191,19 @@ def detect_indexability_column(df: pd.DataFrame) -> str | None:
     return _detect_by_names(df, INDEX_COL_NAMES)
 
 
+def detect_note_column(df: pd.DataFrame) -> str | None:
+    """Spalte mit dem Status der Embedding-Anfrage (z. B. Screaming Frog 'Prompt Request Status')."""
+    return _detect_by_names(df, NOTE_COL_NAMES)
+
+
+def _is_blank(value) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, float) and np.isnan(value):
+        return True
+    return str(value).strip().lower() in ("", "nan", "none")
+
+
 def is_indexable(value) -> bool:
     if value is None:
         return False
@@ -205,8 +220,12 @@ def build_language_set(
     filter_indexable: bool,
     status_col: str | None = None,
     index_col: str | None = None,
+    note_col: str | None = None,
 ) -> LanguageSet:
-    """Baut ein LanguageSet: filtert, parst Vektoren, verwirft Ausreißer, dedupliziert, L2-normalisiert."""
+    """Baut ein LanguageSet: filtert, parst Vektoren, verwirft Ausreißer, dedupliziert, L2-normalisiert.
+
+    note_col: optionale Spalte mit dem Status der Embedding-Anfrage; ihr Wert wird bei leeren
+    Embeddings in den Verwerfungsgrund übernommen."""
     rows: list[tuple[str, str, np.ndarray]] = []
     dropped: list[tuple[str, str]] = []
 
@@ -224,6 +243,10 @@ def build_language_set(
             if not is_indexable(r[index_col]):
                 dropped.append((url_raw, f"nicht indexierbar ({r[index_col]})"))
                 continue
+        if _is_blank(r[emb_col]):
+            note = "" if note_col is None or _is_blank(r[note_col]) else str(r[note_col]).strip()
+            dropped.append((url_raw, f"Embedding fehlt ({note_col}: {note})" if note else "Embedding fehlt"))
+            continue
         vec = parse_vector(r[emb_col])
         if vec is None:
             dropped.append((url_raw, "Embedding nicht lesbar"))

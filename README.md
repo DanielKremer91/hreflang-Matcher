@@ -46,6 +46,8 @@ der Speicherbedarf bleibt gering.
 - Alle weiteren Spalten werden ignoriert.
 - Embeddings müssen von einem multilingualen Modell stammen und in allen Dateien dieselbe
   Dimension haben. Excel schneidet Zellen bei 32.767 Zeichen ab, deshalb CSV nutzen.
+- Leere Embeddings (Screaming Frog konnte die Anfrage nicht ausführen, z. B. „input length exceeds the
+  context length“) werden verworfen; der Grund aus „Prompt Request Status“ wird mit ausgegeben.
 
 ## Ablauf
 

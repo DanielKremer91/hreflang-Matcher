@@ -155,6 +155,16 @@ class TestDetectColumns:
         assert io_utils.detect_status_column(df) is None
 
 
+class TestDetectNoteColumn:
+    def test_prompt_request_status(self):
+        df = pd.DataFrame({"Address": ["u"], "Prompt Request Status": ["Success"], "Status": ["OK"]})
+        assert io_utils.detect_note_column(df) == "Prompt Request Status"
+
+    def test_none(self):
+        df = pd.DataFrame({"Address": ["u"], "Status": ["OK"]})
+        assert io_utils.detect_note_column(df) is None
+
+
 class TestIsIndexable:
     @pytest.mark.parametrize("v,exp", [
         ("Indexable", True), ("indexable", True), ("Indexierbar", True),
@@ -207,6 +217,26 @@ class TestBuildLanguageSet:
             filter_indexable=True, status_col="Status Code", index_col="Indexability",
         )
         assert "https://a.de/2" not in ls.urls
+
+    def test_empty_embedding_reports_prompt_status(self):
+        df = pd.DataFrame({
+            "Address": ["https://a.de/leer", "https://a.de/kaputt", "https://a.de/ok"],
+            "Prompt Request Status": ["Error: the input length exceeds the context length", "Success", "Success"],
+            "Embeddings": [float("nan"), "kaputt", _vec()],
+        })
+        ls = io_utils.build_language_set(
+            df, "de", "x", "Address", "Embeddings", filter_indexable=False,
+            note_col="Prompt Request Status",
+        )
+        reasons = dict(zip(ls.dropped["URL"], ls.dropped["Grund"]))
+        assert reasons["https://a.de/leer"] == "Embedding fehlt (Prompt Request Status: Error: the input length exceeds the context length)"
+        assert reasons["https://a.de/kaputt"] == "Embedding nicht lesbar"
+        assert ls.urls == ["https://a.de/ok"]
+
+    def test_empty_embedding_without_note_column(self):
+        df = pd.DataFrame({"Address": ["https://a.de/leer"], "Embeddings": [""]})
+        ls = io_utils.build_language_set(df, "de", "x", "Address", "Embeddings", filter_indexable=False)
+        assert ls.dropped["Grund"].tolist() == ["Embedding fehlt"]
 
     def test_empty_result_has_2d_vectors(self):
         df = pd.DataFrame({"Address": ["https://a.de/x"], "Embeddings": ["kaputt"]})
