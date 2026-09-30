@@ -43,7 +43,8 @@ def mapping_table(
     cols = [f"Pivot-URL ({pivot_code})"]
     for c in others:
         cols += [f"URL ({c})", f"Score ({c})", f"Methode ({c})", f"Konfidenz ({c})", f"Grund ({c})",
-                 f"Zweitbeste URL ({c})", f"Zweitbester Score ({c})"]
+                 f"Zweitbeste URL ({c})", f"Zweitbester Score ({c})",
+                 f"Bevorzugte Pivot-URL ({c})", f"Score bevorzugte Pivot-URL ({c})"]
     cols += ["Cluster-Konfidenz", "x-default-Fallback"]
 
     rows = []
@@ -58,6 +59,8 @@ def mapping_table(
             row[f"Grund ({c})"] = m.reason if m else ""
             row[f"Zweitbeste URL ({c})"] = (m.second_url or "") if m else ""
             row[f"Zweitbester Score ({c})"] = m.second_score if m else None
+            row[f"Bevorzugte Pivot-URL ({c})"] = (m.preferred_pivot_url or "") if m else ""
+            row[f"Score bevorzugte Pivot-URL ({c})"] = m.preferred_pivot_score if m else None
         row["Cluster-Konfidenz"] = cl.confidence if cl.matches else NO_MATCH_CONFIDENCE
         row["x-default-Fallback"] = "ja" if x_default_fallback(cl, x_default_code) else "nein"
         rows.append(row)

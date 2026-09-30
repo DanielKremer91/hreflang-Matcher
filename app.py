@@ -79,6 +79,8 @@ Threshold gesammelt. Alle Kandidatenpaare werden nach Score sortiert und von obe
 **Konfidenz:** Ein Treffer ist *sicher*, wenn er deutlich über dem Threshold liegt (außerhalb des
 Review-Bands), *reziprok* ist (beide URLs sind gegenseitig der beste Treffer) und der zweitbeste Kandidat
 mindestens um die Margin schlechter ist. Sonst *prüfen*, mit Angabe des Grunds und des zweitbesten Kandidaten.
+Bei „nicht reziprok“ nennt die Spalte *Bevorzugte Pivot-URL*, welche URL der Pivot-Sprache die zugeordnete
+Seite eigentlich am ähnlichsten findet. So siehst du direkt die konkurrierende Ausgangs-URL.
 
 **Optional:** Exact-Slug-Match als Vorstufe (identischer Pfad nach Entfernen des Sprachsegments) und ein
 Filter auf Status 200 und Indexable / Indexierbar.

@@ -247,6 +247,9 @@ Cluster-Konfidenz = „prüfen“, sobald ein Mitglied „prüfen“ ist, sonst
 `Pivot-URL (<code>)`, dann je andere Sprache
 `URL (<code>)`, `Score (<code>)`, `Methode (<code>)`, `Konfidenz (<code>)`,
 `Grund (<code>)`, `Zweitbeste URL (<code>)`, `Zweitbester Score (<code>)`,
+`Bevorzugte Pivot-URL (<code>)`, `Score bevorzugte Pivot-URL (<code>)`
+(gefüllt, wenn die zugeordnete URL selbst eine andere Pivot-URL am
+ähnlichsten findet, also bei „nicht reziprok“ aus Sicht der Zielsprache),
 zuletzt `Cluster-Konfidenz` und `x-default-Fallback` (ja/nein). Eine Zeile je
 Pivot-URL, auch wenn kein einziger Treffer vorliegt (dann leere Zellen und
 `Cluster-Konfidenz` = „kein Treffer“).

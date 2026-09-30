@@ -123,6 +123,12 @@ def embedding_match(
                 margin = score - second_score
                 break
 
+        preferred_url = preferred_score = None
+        pb = int(col_best[b])
+        if pb >= 0 and pb != a:
+            preferred_url = pivot.urls[rem_p[pb]]
+            preferred_score = round(float(np.dot(P[pb].astype(np.float64), L[b].astype(np.float64))), 4)
+
         reasons: list[str] = []
         if score < threshold + band:
             reasons.append(f"knapp über Threshold ({score:.3f})")
@@ -139,6 +145,8 @@ def embedding_match(
             margin=None if margin is None else round(margin, 4),
             confidence="sicher" if not reasons else "prüfen",
             reason="; ".join(reasons),
+            preferred_pivot_url=preferred_url,
+            preferred_pivot_score=preferred_score,
         ))
     return matches
 

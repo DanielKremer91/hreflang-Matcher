@@ -12,8 +12,10 @@ def _ls(code, urls, dropped=None):
                        pd.DataFrame(dropped, columns=["URL", "Grund"]))
 
 
-def _m(p, o, code, score=0.95, conf="sicher", reason="", method="embedding", second=None, second_score=None, margin=None, reciprocal=True):
-    return Match(p, o, code, score, method, reciprocal, second, second_score, margin, conf, reason)
+def _m(p, o, code, score=0.95, conf="sicher", reason="", method="embedding", second=None, second_score=None, margin=None, reciprocal=True,
+       preferred=None, preferred_score=None):
+    return Match(p, o, code, score, method, reciprocal, second, second_score, margin, conf, reason,
+                 preferred_pivot_url=preferred, preferred_pivot_score=preferred_score)
 
 
 @pytest.fixture
@@ -25,7 +27,8 @@ def scenario():
         _m("https://a.com/de/1", "https://a.com/fr/1", "fr", method="slug", score=1.0),
         _m("https://a.com/de/1", "https://a.com/en/1", "en"),
         _m("https://a.com/de/2", "https://a.com/fr/2", "fr", score=0.82, conf="prüfen", reason="nicht reziprok",
-           second="https://a.com/fr/x", second_score=0.81, margin=0.01, reciprocal=False),
+           second="https://a.com/fr/x", second_score=0.81, margin=0.01, reciprocal=False,
+           preferred="https://a.com/de/3", preferred_score=0.9),
     ]
     result = MatchResult("de", matches, {"fr": ["https://a.com/fr/x"], "en": [], "de": ["https://a.com/de/3"]}, {})
     return [de, fr, en], result
@@ -67,7 +70,9 @@ class TestMappingTable:
         assert list(df.columns) == [
             "Pivot-URL (de)",
             "URL (fr)", "Score (fr)", "Methode (fr)", "Konfidenz (fr)", "Grund (fr)", "Zweitbeste URL (fr)", "Zweitbester Score (fr)",
+            "Bevorzugte Pivot-URL (fr)", "Score bevorzugte Pivot-URL (fr)",
             "URL (en)", "Score (en)", "Methode (en)", "Konfidenz (en)", "Grund (en)", "Zweitbeste URL (en)", "Zweitbester Score (en)",
+            "Bevorzugte Pivot-URL (en)", "Score bevorzugte Pivot-URL (en)",
             "Cluster-Konfidenz", "x-default-Fallback",
         ]
         assert len(df) == 3
@@ -76,6 +81,8 @@ class TestMappingTable:
         r1 = df.iloc[1]
         assert r1["Konfidenz (fr)"] == "prüfen" and r1["Grund (fr)"] == "nicht reziprok"
         assert r1["Zweitbeste URL (fr)"] == "https://a.com/fr/x" and r1["Zweitbester Score (fr)"] == 0.81
+        assert r1["Bevorzugte Pivot-URL (fr)"] == "https://a.com/de/3" and r1["Score bevorzugte Pivot-URL (fr)"] == 0.9
+        assert r0["Bevorzugte Pivot-URL (fr)"] == "" and pd.isna(r0["Score bevorzugte Pivot-URL (fr)"])
         assert r1["URL (en)"] == "" and r1["x-default-Fallback"] == "ja"
         r2 = df.iloc[2]
         assert r2["URL (fr)"] == "" and r2["Cluster-Konfidenz"] == "kein Treffer" and r2["x-default-Fallback"] == "nein"

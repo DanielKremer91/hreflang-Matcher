@@ -131,6 +131,30 @@ class TestEmbeddingMatch:
         urls_o = [m.other_url for m in ms]
         assert len(urls_o) == len(set(urls_o))
 
+    def test_preferred_pivot_named_when_other_url_prefers_another_pivot(self):
+        # fr1 mag de0 am liebsten (0.994), de0 ist aber schon an fr0 (1.0) vergeben.
+        # de1 bekommt fr1 (0.858): nicht reziprok, bevorzugte Pivot-URL ist de0.
+        de = _ls("de", ["https://a.com/de/0", "https://a.com/de/1"],
+                 np.array([[1, 0, 0, 0], [0.8, 0.6, 0, 0]], dtype=np.float32))
+        fr = _ls("fr", ["https://a.com/fr/0", "https://a.com/fr/1"],
+                 np.array([[1, 0, 0, 0], [0.95, 0.1, 0, 0]], dtype=np.float32))
+        ms = matching.embedding_match(de, fr, [0, 1], [0, 1], threshold=0.5, band=0.0, min_margin=0.0)
+        by_pivot = {m.pivot_url: m for m in ms}
+        m1 = by_pivot["https://a.com/de/1"]
+        assert m1.other_url == "https://a.com/fr/1"
+        assert m1.reciprocal is False and "nicht reziprok" in m1.reason
+        assert m1.preferred_pivot_url == "https://a.com/de/0"
+        assert m1.preferred_pivot_score == pytest.approx(0.9945, abs=1e-3)
+        m0 = by_pivot["https://a.com/de/0"]
+        assert m0.reciprocal is True
+        assert m0.preferred_pivot_url is None and m0.preferred_pivot_score is None
+
+    def test_slug_match_has_no_preferred_pivot(self):
+        de = _ls("de", ["https://a.com/de/x"])
+        fr = _ls("fr", ["https://a.com/fr/x"])
+        matches, _, _ = matching.slug_match(de, fr)
+        assert matches[0].preferred_pivot_url is None and matches[0].preferred_pivot_score is None
+
     def test_respects_remaining_indices(self):
         de, fr = self._sets()
         ms = matching.embedding_match(de, fr, [1], [0, 1, 2], threshold=0.8, band=0.0, min_margin=0.0)

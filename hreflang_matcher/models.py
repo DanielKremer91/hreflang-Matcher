@@ -38,6 +38,10 @@ class Match:
     margin: float | None      # score - second_score
     confidence: str           # "sicher" | "prüfen"
     reason: str               # leer bei "sicher"
+    # Pivot-URL, die die zugeordnete URL selbst am ähnlichsten findet, falls das
+    # nicht pivot_url ist (Ursache für "nicht reziprok"); sonst None.
+    preferred_pivot_url: str | None = None
+    preferred_pivot_score: float | None = None
 
 
 @dataclass
