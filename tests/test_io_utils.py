@@ -1,3 +1,4 @@
+import json
 import numpy as np
 import pandas as pd
 import pytest
@@ -257,3 +258,65 @@ class TestCheckDimensions:
         with pytest.raises(ValueError) as e:
             io_utils.check_dimensions([self._ls("de", 8), self._ls("fr", 16)])
         assert "de: 8" in str(e.value) and "fr: 16" in str(e.value)
+
+
+class TestRowFilterReasons:
+    def _df(self):
+        return pd.DataFrame({
+            "Address": ["https://a.de/1", "", "https://a.de/3", "https://a.de/4"],
+            "Status Code": [200, 200, 404, 200],
+            "Indexability": ["Indexable", "Indexable", "Indexable", "Non-Indexable"],
+        }, index=[7, 8, 9, 10])
+
+    def test_positional_with_filter(self):
+        keep, drop = io_utils.row_filter_reasons(self._df(), "Address", True, "Status Code", "Indexability")
+        assert keep == {0: "https://a.de/1"}
+        assert drop == {1: "leere URL", 2: "Status Code 404", 3: "nicht indexierbar (Non-Indexable)"}
+
+    def test_without_filter(self):
+        keep, drop = io_utils.row_filter_reasons(self._df(), "Address", False, "Status Code", "Indexability")
+        assert set(keep) == {0, 2, 3} and drop == {1: "leere URL"}
+
+
+class TestLanguageSetFromVectors:
+    def test_builds_with_errors_and_filters(self):
+        df = pd.DataFrame({
+            "Address": ["https://a.de/1/", "https://a.de/2", "https://a.de/1", "https://a.de/4", "https://a.de/5"],
+            "Status Code": [200, 200, 200, 404, 200],
+        })
+        vectors = {0: np.ones(8, dtype=np.float32), 1: np.arange(8, dtype=np.float32), 2: np.ones(8, dtype=np.float32),
+                   3: np.ones(8, dtype=np.float32)}
+        errors = {4: "Embedding-Anfrage fehlgeschlagen: HTTP 401 Unauthorized"}
+        ls = io_utils.language_set_from_vectors(df, "de", "x", "Address", vectors, errors, True, "Status Code")
+        assert ls.urls == ["https://a.de/1/", "https://a.de/2"]
+        np.testing.assert_allclose(np.linalg.norm(ls.vectors, axis=1), [1.0, 1.0], rtol=1e-5)
+        reasons = dict(zip(ls.dropped["URL"], ls.dropped["Grund"]))
+        assert "Duplikat" in reasons["https://a.de/1"]
+        assert reasons["https://a.de/4"] == "Status Code 404"
+        assert reasons["https://a.de/5"].startswith("Embedding-Anfrage fehlgeschlagen")
+
+    def test_row_without_vector_or_error_is_reported(self):
+        df = pd.DataFrame({"Address": ["https://a.de/1"]})
+        ls = io_utils.language_set_from_vectors(df, "de", "x", "Address", {}, {}, False)
+        assert len(ls) == 0 and ls.dropped["Grund"].tolist() == ["Embedding fehlt"]
+
+    def test_dimension_mismatch_dropped(self):
+        df = pd.DataFrame({"Address": ["https://a.de/1", "https://a.de/2", "https://a.de/3"]})
+        vectors = {0: np.ones(8, dtype=np.float32), 1: np.ones(8, dtype=np.float32), 2: np.ones(5, dtype=np.float32)}
+        ls = io_utils.language_set_from_vectors(df, "de", "x", "Address", vectors, {}, False)
+        assert len(ls) == 2 and "Dimension 5 statt 8" in ls.dropped["Grund"].iloc[0]
+
+
+class TestEmbeddingsCsv:
+    def test_roundtrip_into_existing_mode(self):
+        df = pd.DataFrame({"Address": ["https://a.de/1", "https://a.de/2"], "Embeddings": [_vec(8, 1), _vec(8, 2)]})
+        ls = io_utils.build_language_set(df, "de", "x", "Address", "Embeddings", filter_indexable=False)
+        raw = io_utils.embeddings_csv(ls)
+        assert raw.startswith("\ufeff".encode("utf-8"))
+        df2 = io_utils.read_any_file("embeddings_de.csv", raw)
+        assert list(df2.columns) == ["Address", "Embedding"]
+        assert io_utils.detect_embedding_column(df2) == "Embedding"
+        ls2 = io_utils.build_language_set(df2, "de", "y", "Address", "Embedding", filter_indexable=False)
+        assert ls2.urls == ls.urls
+        np.testing.assert_allclose(ls2.vectors, ls.vectors, atol=2e-6)
+        assert len(json.loads(df2["Embedding"].iloc[0])) == 8

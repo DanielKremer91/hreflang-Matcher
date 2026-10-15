@@ -211,48 +211,37 @@ def is_indexable(value) -> bool:
     return v.startswith("indexable") or v.startswith("indexierbar")
 
 
-def build_language_set(
+def row_filter_reasons(
     df: pd.DataFrame,
-    code: str,
-    label: str,
     url_col: str,
-    emb_col: str,
     filter_indexable: bool,
     status_col: str | None = None,
     index_col: str | None = None,
-    note_col: str | None = None,
-) -> LanguageSet:
-    """Baut ein LanguageSet: filtert, parst Vektoren, verwirft Ausreißer, dedupliziert, L2-normalisiert.
-
-    note_col: optionale Spalte mit dem Status der Embedding-Anfrage; ihr Wert wird bei leeren
-    Embeddings in den Verwerfungsgrund übernommen."""
-    rows: list[tuple[str, str, np.ndarray]] = []
-    dropped: list[tuple[str, str]] = []
-
-    for _, r in df.iterrows():
+) -> tuple[dict[int, str], dict[int, str]]:
+    """Positionaler Zeilenindex -> behaltene Original-URL bzw. -> Verwerfungsgrund (URL/Status/Indexierbarkeit)."""
+    keep: dict[int, str] = {}
+    drop: dict[int, str] = {}
+    for pos, (_, r) in enumerate(df.iterrows()):
         url_raw = "" if pd.isna(r[url_col]) else str(r[url_col]).strip()
         if not url_raw:
-            dropped.append(("", "leere URL"))
+            drop[pos] = "leere URL"
             continue
         if filter_indexable and status_col is not None:
             code_val = pd.to_numeric(r[status_col], errors="coerce")
             if pd.isna(code_val) or int(code_val) != 200:
-                dropped.append((url_raw, f"Status Code {'' if pd.isna(code_val) else int(code_val)}".strip()))
+                drop[pos] = f"Status Code {'' if pd.isna(code_val) else int(code_val)}".strip()
                 continue
-        if filter_indexable and index_col is not None:
-            if not is_indexable(r[index_col]):
-                dropped.append((url_raw, f"nicht indexierbar ({r[index_col]})"))
-                continue
-        if _is_blank(r[emb_col]):
-            note = "" if note_col is None or _is_blank(r[note_col]) else str(r[note_col]).strip()
-            dropped.append((url_raw, f"Embedding fehlt ({note_col}: {note})" if note else "Embedding fehlt"))
+        if filter_indexable and index_col is not None and not is_indexable(r[index_col]):
+            drop[pos] = f"nicht indexierbar ({r[index_col]})"
             continue
-        vec = parse_vector(r[emb_col])
-        if vec is None:
-            dropped.append((url_raw, "Embedding nicht lesbar"))
-            continue
-        rows.append((url_raw, normalize_url(url_raw), vec))
+        keep[pos] = url_raw
+    return keep, drop
 
+
+def finalize_language_set(
+    code: str, label: str, rows: list[tuple[str, str, np.ndarray]], dropped: list[tuple[str, str]]
+) -> LanguageSet:
+    """Dimensionsmehrheit, Duplikate, Nullvektoren, L2-Normalisierung; baut das LanguageSet."""
     dim = 0
     if rows:
         counts = Counter(int(v.size) for _, _, v in rows)
@@ -282,6 +271,79 @@ def build_language_set(
     vectors = np.vstack(vecs) if vecs else np.zeros((0, 0), dtype=np.float32)
     dropped_df = pd.DataFrame(dropped, columns=["URL", "Grund"])
     return LanguageSet(code=code, label=label, urls=urls, norm_urls=norm_urls, vectors=vectors, dropped=dropped_df)
+
+
+def build_language_set(
+    df: pd.DataFrame,
+    code: str,
+    label: str,
+    url_col: str,
+    emb_col: str,
+    filter_indexable: bool,
+    status_col: str | None = None,
+    index_col: str | None = None,
+    note_col: str | None = None,
+) -> LanguageSet:
+    """Baut ein LanguageSet aus einer Embedding-Spalte: filtert, parst Vektoren, verwirft Ausreißer, dedupliziert.
+
+    note_col: optionale Spalte mit dem Status der Embedding-Anfrage; ihr Wert wird bei leeren
+    Embeddings in den Verwerfungsgrund übernommen."""
+    keep, drop = row_filter_reasons(df, url_col, filter_indexable, status_col, index_col)
+    rows: list[tuple[str, str, np.ndarray]] = []
+    dropped: list[tuple[str, str]] = []
+    url_values = df[url_col].tolist()
+    for pos, reason in drop.items():
+        u = url_values[pos]
+        dropped.append(("" if pd.isna(u) else str(u).strip(), reason))
+    emb_values = df[emb_col].tolist()
+    note_values = df[note_col].tolist() if note_col is not None else None
+    for pos, url_raw in keep.items():
+        if _is_blank(emb_values[pos]):
+            note = "" if note_values is None or _is_blank(note_values[pos]) else str(note_values[pos]).strip()
+            dropped.append((url_raw, f"Embedding fehlt ({note_col}: {note})" if note else "Embedding fehlt"))
+            continue
+        vec = parse_vector(emb_values[pos])
+        if vec is None:
+            dropped.append((url_raw, "Embedding nicht lesbar"))
+            continue
+        rows.append((url_raw, normalize_url(url_raw), vec))
+    return finalize_language_set(code, label, rows, dropped)
+
+
+def language_set_from_vectors(
+    df: pd.DataFrame,
+    code: str,
+    label: str,
+    url_col: str,
+    vectors: dict[int, np.ndarray],
+    errors: dict[int, str],
+    filter_indexable: bool,
+    status_col: str | None = None,
+    index_col: str | None = None,
+) -> LanguageSet:
+    """Baut ein LanguageSet aus bereits berechneten Vektoren (positionaler Zeilenindex -> Vektor)."""
+    keep, drop = row_filter_reasons(df, url_col, filter_indexable, status_col, index_col)
+    rows: list[tuple[str, str, np.ndarray]] = []
+    dropped: list[tuple[str, str]] = []
+    url_values = df[url_col].tolist()
+    for pos, reason in drop.items():
+        u = url_values[pos]
+        dropped.append(("" if pd.isna(u) else str(u).strip(), reason))
+    for pos, url_raw in keep.items():
+        if pos in errors:
+            dropped.append((url_raw, errors[pos]))
+        elif pos in vectors:
+            rows.append((url_raw, normalize_url(url_raw), np.asarray(vectors[pos], dtype=np.float32)))
+        else:
+            dropped.append((url_raw, "Embedding fehlt"))
+    return finalize_language_set(code, label, rows, dropped)
+
+
+def embeddings_csv(ls: LanguageSet) -> bytes:
+    """CSV mit Address + Embedding (JSON-Array), im Modus 'Embeddings in der Datei' direkt nutzbar."""
+    emb = ["[" + ", ".join(f"{x:.6f}" for x in v) + "]" for v in ls.vectors]
+    df = pd.DataFrame({"Address": ls.urls, "Embedding": emb})
+    return df.to_csv(index=False).encode("utf-8-sig")
 
 
 def check_dimensions(sets: list[LanguageSet]) -> None:
