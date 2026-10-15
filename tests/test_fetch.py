@@ -100,3 +100,16 @@ def test_fetch_main_texts_parallel_keeps_indices(base):
 
 def test_user_agent_constant():
     assert fetch.USER_AGENT == "ONE-hreflang-Matcher/1.0 (+https://onebeyondsearch.com)"
+
+
+def test_fetch_main_texts_survives_unexpected_exception(base, monkeypatch):
+    real = fetch.fetch_one
+
+    def flaky(url, timeout=10.0, session=None):
+        if url.endswith("/boom"):
+            raise RuntimeError("kaputt")
+        return real(url, timeout=timeout, session=session)
+
+    monkeypatch.setattr(fetch, "fetch_one", flaky)
+    res = fetch.fetch_main_texts({0: base + "/ok", 1: base + "/boom", 2: base + "/ok"}, concurrency=2, timeout=5)
+    assert set(res.texts) == {0, 2} and res.errors == {1: "Fehler: RuntimeError"}

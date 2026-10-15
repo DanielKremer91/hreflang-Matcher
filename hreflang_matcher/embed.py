@@ -39,8 +39,15 @@ def cache_key(cfg: EmbeddingConfig, text: str) -> str:
 
 def _short(resp: requests.Response) -> str:
     try:
-        msg = resp.json().get("error", {}).get("message") or resp.text
+        body = resp.json()
     except ValueError:
+        body = None
+    err = body.get("error") if isinstance(body, dict) else None
+    if isinstance(err, dict):
+        msg = err.get("message") or resp.text
+    elif isinstance(err, str):
+        msg = err
+    else:
         msg = resp.text
     return str(msg).strip().replace("\n", " ")[:200]
 
@@ -54,6 +61,9 @@ def _post_once(cfg: EmbeddingConfig, texts: list[str], session: requests.Session
         resp = session.post(url, json={"model": cfg.model, "input": texts}, headers=headers, timeout=cfg.timeout)
     except requests.Timeout as e:
         raise RetryableError(f"Timeout: {e}") from e
+    except (requests.exceptions.MissingSchema, requests.exceptions.InvalidSchema,
+            requests.exceptions.InvalidURL) as e:
+        raise EmbeddingError(f"Ungültige Base-URL: {cfg.base_url!r}") from e
     except requests.RequestException as e:
         raise RetryableError(f"Verbindungsfehler: {e.__class__.__name__}") from e
     if resp.status_code == 429 or resp.status_code >= 500:
@@ -64,7 +74,7 @@ def _post_once(cfg: EmbeddingConfig, texts: list[str], session: requests.Session
         data = resp.json()["data"]
         data = sorted(data, key=lambda d: d.get("index", 0))
         vecs = [np.asarray(d["embedding"], dtype=np.float32) for d in data]
-    except (ValueError, KeyError, TypeError) as e:
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
         raise EmbeddingError(f"Unerwartete Antwort des Endpunkts: {e}") from e
     if len(vecs) != len(texts):
         raise EmbeddingError(f"Endpunkt lieferte {len(vecs)} Vektoren für {len(texts)} Texte")
@@ -118,13 +128,18 @@ def embed_texts(
     result = EmbedResult()
     total = len(texts)
     done = 0
-    missing: list[tuple[int, str]] = []
+    missing: list[tuple[int, str]] = []  # je eindeutigem Text die erste Zeile
+    groups: dict[str, list[int]] = {}  # Cache-Schlüssel -> alle Zeilen mit diesem Text
     for idx, text in texts.items():
-        hit = cache.get(cache_key(cfg, text))
+        key = cache_key(cfg, text)
+        hit = cache.get(key)
         if hit is not None:
             result.vectors[idx] = hit
             done += 1
+        elif key in groups:
+            groups[key].append(idx)
         else:
+            groups[key] = [idx]
             missing.append((idx, text))
     if on_progress:
         on_progress(done, total)
@@ -135,20 +150,23 @@ def embed_texts(
         session = session_factory()
         try:
             return batch, embed_batch(cfg, [t for _, t in batch], session, sleep), None
-        except EmbeddingError as e:
+        except Exception as e:  # ein defekter Batch darf nie den ganzen Lauf abbrechen
             return batch, None, str(e)
         finally:
             session.close()
 
     with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
         for batch, vecs, err in pool.map(run, batches):
-            for pos, (idx, text) in enumerate(batch):
-                if err is not None:
-                    result.errors[idx] = FAIL_PREFIX + err
-                else:
-                    result.vectors[idx] = vecs[pos]
-                    cache[cache_key(cfg, text)] = vecs[pos]
-            done += len(batch)
+            for pos, (_, text) in enumerate(batch):
+                key = cache_key(cfg, text)
+                for idx in groups[key]:
+                    if err is not None:
+                        result.errors[idx] = FAIL_PREFIX + err
+                    else:
+                        result.vectors[idx] = vecs[pos]
+                    done += 1
+                if err is None:
+                    cache[key] = vecs[pos]
             if on_progress:
                 on_progress(done, total)
 

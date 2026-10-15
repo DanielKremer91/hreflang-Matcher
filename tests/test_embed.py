@@ -164,3 +164,63 @@ def test_connection_error_is_embedding_error():
     with pytest.raises(embed.EmbeddingError) as e:
         embed.embed_batch(cfg, ["x"], sleep=lambda s: None)
     assert "Verbindungsfehler" in str(e.value)
+
+
+def test_401_with_string_error_body(server):
+    srv, h = server
+    h.script[:] = [(401, {"error": "bad key"})]
+    with pytest.raises(embed.EmbeddingError) as e:
+        embed.embed_batch(_cfg(srv), ["x"], sleep=lambda s: None)
+    assert "HTTP 401 bad key" in str(e.value)
+
+
+def test_error_body_list_over_http(server):
+    srv, h = server
+    h.script[:] = [(401, ["x"])]
+    with pytest.raises(embed.EmbeddingError) as e:
+        embed.embed_batch(_cfg(srv), ["x"], sleep=lambda s: None)
+    assert str(e.value).startswith("HTTP 401")
+
+
+@pytest.mark.parametrize("raw", [b"null", b"[1, 2]", b'{"error": null}', b"not json"])
+def test_short_tolerates_any_body(raw):
+    import requests
+    resp = requests.Response()
+    resp.status_code = 401
+    resp._content = raw
+    assert embed._short(resp) == raw.decode().strip()
+
+
+def test_200_with_non_dict_items_is_unexpected_response(server):
+    srv, h = server
+    h.script[:] = [(200, {"data": ["x"]})]
+    with pytest.raises(embed.EmbeddingError) as e:
+        embed.embed_batch(_cfg(srv), ["x"], sleep=lambda s: None)
+    assert "Unerwartete Antwort" in str(e.value)
+
+
+def test_invalid_base_url_is_not_retried():
+    sleeps = []
+    with pytest.raises(embed.EmbeddingError) as e:
+        embed.embed_batch(EmbeddingConfig(base_url="", model="m"), ["x"], sleep=sleeps.append)
+    assert "Ungültige Base-URL" in str(e.value) and sleeps == []
+
+
+def test_unexpected_exception_becomes_row_errors(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("kaputt")
+    monkeypatch.setattr(embed, "_post_once", boom)
+    cfg = EmbeddingConfig("http://x/v1", "m", batch_size=1)
+    res = embed.embed_texts({0: "a", 1: "b"}, cfg, max_workers=1)
+    assert res.vectors == {} and set(res.errors) == {0, 1}
+    assert all("kaputt" in m for m in res.errors.values())
+
+
+def test_embed_texts_deduplicates_identical_texts(server):
+    srv, h = server
+    progress = []
+    res = embed.embed_texts({0: "a", 1: "a", 2: "b"}, _cfg(srv, batch_size=10), max_workers=1,
+                            on_progress=lambda d, t: progress.append((d, t)))
+    assert len(h.requests_seen) == 1 and h.requests_seen[0]["body"]["input"] == ["a", "b"]
+    assert set(res.vectors) == {0, 1, 2} and res.vectors[1].tolist() == _vec_for("a")
+    assert progress[-1] == (3, 3)

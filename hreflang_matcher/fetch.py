@@ -66,6 +66,8 @@ def fetch_main_texts(
         session = session_factory()
         try:
             text, err = fetch_one(url, timeout=timeout, session=session)
+        except Exception as e:  # eine defekte Seite darf nie den ganzen Lauf abbrechen
+            text, err = "", f"Fehler: {e.__class__.__name__}"
         finally:
             session.close()
         return idx, text, err
