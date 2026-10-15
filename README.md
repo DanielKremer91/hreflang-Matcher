@@ -16,10 +16,9 @@ Tests: `.venv/bin/python -m pytest`
 
 ## Getestete Umgebungen
 
-- Python 3.9 mit streamlit 1.50, pandas 2.3, numpy 2.0
-- Python 3.14 mit streamlit 1.64, pandas 3.0, numpy 2.5 (Streamlit-Cloud-Standard)
+- Python 3.14 mit streamlit 1.66, pandas 3.0, numpy 2.5, trafilatura 2.3, requests 2.34 (Streamlit-Cloud-Standard)
 
-Beide Stacks laufen die komplette Testsuite (124 Tests) ohne Warnungen durch.
+Python 3.10 oder neuer wird benötigt (trafilatura und requests). Die Testsuite läuft ohne Warnungen durch.
 
 ## Deployment auf Streamlit Community Cloud
 

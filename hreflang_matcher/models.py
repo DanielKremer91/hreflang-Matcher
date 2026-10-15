@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -66,3 +66,28 @@ class PatternSuggestion:
     code: str                 # vorgeschlagener hreflang-Code, evtl. ""
     example: str
     count: int
+
+
+@dataclass
+class EmbeddingConfig:
+    """Verbindung zu einem OpenAI-kompatiblen Embedding-Endpunkt."""
+
+    base_url: str              # z. B. "https://api.openai.com/v1", "http://localhost:11434/v1"
+    model: str                 # z. B. "text-embedding-3-small", "bge-m3"
+    api_key: str = ""          # leer bei lokalen Servern
+    max_chars: int = 20000     # Kürzung je Text vor dem Versand
+    batch_size: int = 64
+    timeout: float = 60.0
+
+
+@dataclass
+class EmbedResult:
+    vectors: dict[int, np.ndarray] = field(default_factory=dict)   # Zeilenindex -> float32-Vektor
+    errors: dict[int, str] = field(default_factory=dict)           # Zeilenindex -> Grund
+    dim: int = 0
+
+
+@dataclass
+class FetchResult:
+    texts: dict[int, str] = field(default_factory=dict)            # Zeilenindex -> Haupttext
+    errors: dict[int, str] = field(default_factory=dict)           # Zeilenindex -> Grund
