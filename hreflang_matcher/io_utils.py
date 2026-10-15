@@ -333,7 +333,15 @@ def language_set_from_vectors(
         if pos in errors:
             dropped.append((url_raw, errors[pos]))
         elif pos in vectors:
-            rows.append((url_raw, normalize_url(url_raw), np.asarray(vectors[pos], dtype=np.float32)))
+            try:
+                arr = np.asarray(vectors[pos], dtype=np.float32)
+            except (ValueError, TypeError):
+                dropped.append((url_raw, "Embedding ungültig"))
+                continue
+            if arr.ndim != 1 or arr.size == 0:
+                dropped.append((url_raw, "Embedding ungültig"))
+                continue
+            rows.append((url_raw, normalize_url(url_raw), arr))
         else:
             dropped.append((url_raw, "Embedding fehlt"))
     return finalize_language_set(code, label, rows, dropped)
@@ -341,7 +349,7 @@ def language_set_from_vectors(
 
 def embeddings_csv(ls: LanguageSet) -> bytes:
     """CSV mit Address + Embedding (JSON-Array), im Modus 'Embeddings in der Datei' direkt nutzbar."""
-    emb = ["[" + ", ".join(f"{x:.6f}" for x in v) + "]" for v in ls.vectors]
+    emb = ["[" + ",".join(f"{x:.6f}" for x in v) + "]" for v in ls.vectors]
     df = pd.DataFrame({"Address": ls.urls, "Embedding": emb})
     return df.to_csv(index=False).encode("utf-8-sig")
 

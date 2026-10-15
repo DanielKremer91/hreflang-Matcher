@@ -15,12 +15,27 @@ class TestSuggestTextColumns:
     def test_none(self):
         assert textprep.suggest_text_columns(pd.DataFrame(columns=["Address", "Inlinks"])) == []
 
+    def test_skips_metric_columns(self):
+        cols = ["Address", "Title 1", "Title 1 Length", "Title 1 Pixel Width", "H1-1", "H1-1 Length",
+                "Text Ratio", "Main Content Extraction 1"]
+        assert textprep.suggest_text_columns(pd.DataFrame(columns=cols)) == [
+            "Main Content Extraction 1", "Title 1", "H1-1",
+        ]
+
+    def test_skips_numeric_columns_with_rows(self):
+        df = pd.DataFrame({"Address": ["u1", "u2"], "Text Score": [1, 2]})
+        assert textprep.suggest_text_columns(df) == []
+
 
 class TestTruncate:
     def test_cuts_and_normalizes(self):
         assert textprep.truncate("  a   b\n\n\tc  ", 100) == "a b c"
         assert textprep.truncate("abcdef", 3) == "abc"
         assert textprep.truncate(None, 3) == ""
+
+    def test_missing_values(self):
+        assert textprep.truncate(pd.NA, 3) == ""
+        assert textprep.truncate(float("nan"), 3) == ""
 
 
 class TestBuildTexts:

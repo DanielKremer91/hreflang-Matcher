@@ -307,6 +307,15 @@ class TestLanguageSetFromVectors:
         assert len(ls) == 2 and "Dimension 5 statt 8" in ls.dropped["Grund"].iloc[0]
 
 
+class TestLanguageSetInvalidVectors:
+    def test_invalid_vector_shapes_dropped(self):
+        df = pd.DataFrame({"Address": ["https://a.de/1", "https://a.de/2"]})
+        vectors = {0: np.ones((2, 4), dtype=np.float32), 1: ["a", "b"]}
+        ls = io_utils.language_set_from_vectors(df, "de", "x", "Address", vectors, {}, False)
+        assert len(ls) == 0
+        assert ls.dropped["Grund"].tolist() == ["Embedding ungültig", "Embedding ungültig"]
+
+
 class TestEmbeddingsCsv:
     def test_roundtrip_into_existing_mode(self):
         df = pd.DataFrame({"Address": ["https://a.de/1", "https://a.de/2"], "Embeddings": [_vec(8, 1), _vec(8, 2)]})

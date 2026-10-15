@@ -7,22 +7,35 @@ import pandas as pd
 
 # Reihenfolge = Priorität des Vorschlags.
 TEXT_COL_HINTS = ["main content", "content extraction", "body", "text", "title", "h1", "meta description"]
+# Spalten mit diesen Namensteilen enthalten Zahlen (Längen, Pixelbreiten, Quoten), keinen Text.
+TEXT_COL_EXCLUDE = ["length", "pixel", "ratio", "width", "count", "occurrences"]
 NO_TEXT_REASON = "kein Text in den gewählten Spalten"
 _WS = re.compile(r"\s+")
 
 
 def suggest_text_columns(df: pd.DataFrame) -> list[str]:
-    """Spalten, deren Name einen Texthinweis enthält, in Hinweis-Reihenfolge, ohne Duplikate."""
+    """Spalten, deren Name einen Texthinweis enthält, in Hinweis-Reihenfolge, ohne Duplikate.
+
+    Numerische Spalten und Spalten mit Zahlen-Namensteilen (Länge, Pixel, Ratio, ...) werden übersprungen."""
     out: list[str] = []
+    has_rows = len(df.index) > 0
     for hint in TEXT_COL_HINTS:
         for c in df.columns:
-            if hint in str(c).lower() and c not in out:
-                out.append(c)
+            name = str(c).lower()
+            if hint not in name or c in out:
+                continue
+            if any(x in name for x in TEXT_COL_EXCLUDE):
+                continue
+            if has_rows and pd.api.types.is_numeric_dtype(df[c]):
+                continue
+            out.append(c)
     return out
 
 
 def truncate(text, max_chars: int) -> str:
-    if text is None or (isinstance(text, float) and pd.isna(text)):
+    if text is None or (
+        not isinstance(text, (str, bytes)) and pd.api.types.is_scalar(text) and pd.isna(text)
+    ):
         return ""
     s = _WS.sub(" ", str(text)).strip()
     return s[:max_chars]
