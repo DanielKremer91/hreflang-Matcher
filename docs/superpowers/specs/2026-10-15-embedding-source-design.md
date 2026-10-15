@@ -119,7 +119,11 @@ Abruf (`fetch.fetch_main_texts(urls, concurrency=5, timeout=10)`):
 - Nur `text/html` mit Status 200 wird verarbeitet; sonst Grund
   `HTTP <status>` bzw. `kein HTML (<content-type>)`.
 - Extraktion mit `trafilatura.extract(html, include_comments=False,
-  include_tables=False, favor_precision=True)`. Leeres Ergebnis → Grund
+  include_tables=False, favor_precision=True, fast=True)`. `fast=True`
+  schaltet die readability/justext-Fallbacks ab: Auf echten Seiten
+  (Wikipedia, Google Docs, Unternehmensseiten, geprüft 2026-10-15) ist das
+  Ergebnis identisch, bei reinen Navigationsseiten verhindert es, dass
+  Menütexte als Inhalt durchgehen. Leeres Ergebnis → Grund
   „kein Text extrahiert“. Netzwerkfehler → „Timeout“ oder
   „Verbindungsfehler: <kurz>“.
 - Fortschrittsbalken in der UI über einen Callback `on_progress(done, total)`.
