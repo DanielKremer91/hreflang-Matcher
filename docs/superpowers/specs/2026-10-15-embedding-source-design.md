@@ -239,5 +239,11 @@ Tokens“). Keine Live-Preisabfrage.
 requests>=2.31
 trafilatura>=1.8
 ```
-Beides reines Python bzw. mit vorgefertigten Wheels (lxml), lauffähig auf
-Streamlit Cloud mit Python 3.12+ und lokal mit Python 3.9.
+Beide Pakete verlangen **Python 3.10 oder neuer** (geprüft am 2026-10-15:
+trafilatura 2.3.1, requests 2.34.2). Damit endet die Unterstützung für
+Python 3.9: `pyproject.toml` bekommt `requires-python = ">=3.10"`, die
+lokale Entwicklungsumgebung läuft mit Python 3.14 (angelegt über `uv venv
+--python 3.14 .venv`), Streamlit Cloud nutzt 3.12+. Die Module behalten
+`from __future__ import annotations`, nutzen aber keine 3.9-Rücksichten
+mehr. trafilatura bringt lxml mit vorgefertigten Wheels mit; auf Python
+3.14 ist der Import geprüft.
