@@ -7,7 +7,11 @@ APP = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 # AppTest kann keine Dateien hochladen. Der Wrapper ersetzt st.file_uploader durch gefälschte Upload-Objekte:
 # Mehrfach-Upload aus st.session_state["_fake_files"] (Liste), Einzel-Upload aus ["_fake_single"] (Tupel).
 _WRAPPER = f'''
+import hashlib
+import numpy as np
 import streamlit as st
+import hreflang_matcher.embed as _emb
+from hreflang_matcher.models import EmbedResult
 
 class _FakeUpload:
     def __init__(self, name, data, file_id):
@@ -22,12 +26,29 @@ def _fake_uploader(*args, **kwargs):
     single = st.session_state.get("_fake_single")
     return _FakeUpload(*single) if single else None
 st.file_uploader = _fake_uploader
+
+def _fake_vec(text):
+    h = hashlib.sha1(text.encode("utf-8")).digest()
+    return np.asarray([b / 255.0 for b in h[:8]], dtype=np.float32)
+
+def _fake_embed_texts(texts, cfg, cache=None, on_progress=None, **kw):
+    st.session_state["_embed_calls"] = st.session_state.get("_embed_calls", 0) + 1
+    st.session_state["_embed_cfg"] = (cfg.base_url, cfg.model, cfg.max_chars)
+    res = EmbedResult(vectors={{i: _fake_vec(t) for i, t in texts.items()}}, dim=8)
+    if on_progress:
+        on_progress(len(texts), len(texts))
+    return res
+
+_orig_embed, _orig_test = _emb.embed_texts, _emb.test_connection
+_emb.embed_texts = _fake_embed_texts
+_emb.test_connection = lambda cfg: 8
 with open({APP!r}, encoding="utf-8") as _fh:
     _src = _fh.read()
 try:
     exec(compile(_src, {APP!r}, "exec"))
 finally:
     st.file_uploader = _orig_uploader
+    _emb.embed_texts, _emb.test_connection = _orig_embed, _orig_test
 '''
 
 
@@ -147,3 +168,72 @@ def test_stale_result_dict_is_discarded_with_files():
     assert not at.exception, at.exception
     assert "result" not in at.session_state
     assert not any(h.value == "4. Ergebnisse" for h in at.subheader)
+
+
+def _text_csv(lang: str) -> bytes:
+    rows = ["Address;Title;Main Content Extraction 1"]
+    for i in range(3):
+        rows.append(f"https://a.com/{lang}/p{i}/;Titel {lang} {i};Inhalt {lang} Seite {i} " + "lorem " * 20)
+    return "\n".join(rows).encode("utf-8")
+
+
+def _radio(at, label):
+    return next(r for r in at.radio if r.label == label)
+
+
+def _button(at, label):
+    return next(b for b in at.button if b.label == label)
+
+
+def test_text_source_requires_explicit_compute_click():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
+    at.run()
+    _radio(at, "Embedding-Quelle").set_value("Embeddings aus Textspalten berechnen").run()
+    assert not at.exception, at.exception
+    assert at.session_state.get("_embed_calls", 0) == 0
+    assert any("Embeddings berechnen" in i.value for i in at.info)
+    assert not any(b.label == "Let's Go" for b in at.button)
+
+
+def test_text_source_full_run_to_results_and_export():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
+    at.run()
+    _radio(at, "Embedding-Quelle").set_value("Embeddings aus Textspalten berechnen").run()
+    next(t for t in at.text_input if t.label == "API-Key").set_value("sk-test").run()
+    _button(at, "Embeddings berechnen").click().run()
+    assert not at.exception, at.exception
+    assert at.session_state["_embed_calls"] == 2            # ein Aufruf je Sprachvariante
+    assert at.session_state["_embed_cfg"] == ("https://api.openai.com/v1", "text-embedding-3-small", 20000)
+    comp = at.session_state["computed"]
+    assert [s.code for s in comp["sets"]] == ["de", "fr"] and all(len(s) == 3 and s.dim == 8 for s in comp["sets"])
+    _button(at, "Let's Go").click().run()
+    assert not at.exception, at.exception
+    assert any(h.value == "4. Ergebnisse" for h in at.subheader)
+    assert at.session_state["_embed_calls"] == 2            # Let's Go löst keine neue Berechnung aus
+
+
+def test_text_source_settings_change_marks_embeddings_stale():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
+    at.run()
+    _radio(at, "Embedding-Quelle").set_value("Embeddings aus Textspalten berechnen").run()
+    next(t for t in at.text_input if t.label == "API-Key").set_value("sk-test").run()
+    _button(at, "Embeddings berechnen").click().run()
+    next(s for s in at.slider if s.label.startswith("Max. Zeichen")).set_value(4000).run()
+    assert not at.exception, at.exception
+    assert any("veraltet" in w.value for w in at.warning)
+    assert not any(b.label == "Let's Go" for b in at.button)
+    assert at.session_state["_embed_calls"] == 2
+
+
+def test_in_file_source_unchanged():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _csv("de"), "id-de"), ("fr.csv", _csv("fr"), "id-fr")]
+    at.run()
+    assert _radio(at, "Embedding-Quelle").value == "Embeddings sind in der Datei enthalten"
+    assert not any(b.label == "Embeddings berechnen" for b in at.button)
+    _button(at, "Let's Go").click().run()
+    assert not at.exception, at.exception
+    assert at.session_state.get("_embed_calls", 0) == 0

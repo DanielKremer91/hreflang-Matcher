@@ -5,8 +5,8 @@ import hashlib
 import pandas as pd
 import streamlit as st
 
-from hreflang_matcher import io_utils, lang_detect, matching, output
-from hreflang_matcher.models import LanguageSet
+from hreflang_matcher import embed, fetch, io_utils, lang_detect, matching, output, textprep
+from hreflang_matcher.models import EmbeddingConfig, LanguageSet
 from hreflang_matcher.ui_keys import MODE_FILE, MODE_GROUP, source_key
 
 # ============================================================
@@ -65,6 +65,13 @@ jeder anderen Sprache die URL mit der höchsten Cosinus-Ähnlichkeit gesucht.
 Spalten werden ignoriert. Entweder eine Datei je Sprachvariante oder eine Gesamtdatei, die per URL-Muster
 aufgeteilt wird.
 
+**Embedding-Quelle:** Standard ist „in der Datei enthalten“ (z. B. aus Screaming Frog). Alternativ berechnet das
+Tool die Embeddings selbst: aus gewählten Textspalten (Main Content, Title, H1 …) oder aus den Seiteninhalten,
+die es mit Trafilatura extrahiert. Dafür brauchst du einen OpenAI-kompatiblen Endpunkt: OpenAI mit API-Key,
+oder lokal Ollama/LM Studio (nur wenn das Tool auf demselben Rechner läuft). Texte werden vor dem Versand
+gekürzt, die Berechnung startet nur per Button, und die fertigen Embeddings kannst du als CSV sichern und
+beim nächsten Mal ohne API-Kosten hochladen.
+
 **Wichtig für gute Ergebnisse:**
 - Die Embeddings müssen von einem **multilingualen Modell** stammen (z. B. OpenAI text-embedding-3).
   Rein englische Modelle liefern über Sprachgrenzen hinweg keine brauchbaren Ähnlichkeiten.
@@ -99,6 +106,10 @@ CODE_MODE_REGION = "Sprache-Region (z. B. de-AT)"
 CODE_MODE_LANG = "Nur Sprache (z. B. de)"
 NO_XDEFAULT = "kein x-default"
 FILE_TYPES = ["csv", "xlsx", "xlsm"]
+EMB_IN_FILE = "Embeddings sind in der Datei enthalten"
+EMB_FROM_TEXT = "Embeddings aus Textspalten berechnen"
+EMB_FROM_PAGES = "Embeddings aus den Seiteninhalten berechnen (Trafilatura)"
+FETCH_WARN_URLS = 500
 
 
 # ============================================================
@@ -138,6 +149,92 @@ def warn_bad_lines(name: str, df: pd.DataFrame) -> None:
         st.warning(f"{n} fehlerhafte Zeile(n) in {name} konnten nicht gelesen werden und wurden übersprungen.")
 
 
+def render_set_metrics(ls: LanguageSet) -> None:
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Gültige URLs", len(ls))
+    m2.metric("Embedding-Dimension", ls.dim)
+    m3.metric("Verworfen", len(ls.dropped))
+    if len(ls.dropped):
+        with st.expander(f"Verworfene Zeilen ({len(ls.dropped)})"):
+            st.dataframe(ls.dropped, width="stretch", hide_index=True)
+    if len(ls) == 0:
+        st.error("Keine gültigen URLs mit Embeddings in dieser Sprachvariante.")
+
+
+def render_embedding_settings() -> EmbeddingConfig:
+    """Expander mit Preset, Base-URL, Modell, Key, Kürzung, Verbindungstest, Cache leeren."""
+    with st.expander("⚙️ Embedding-Einstellungen", expanded=True):
+        preset = st.selectbox("Preset", list(embed.PRESETS), key="emb_preset")
+        p = embed.PRESETS[preset]
+        c1, c2 = st.columns(2)
+        with c1:
+            base_url = st.text_input("Base-URL", value=p["base_url"], key=f"emb_base_{preset}",
+                                     help="OpenAI-kompatibler Endpunkt; das Tool ruft {Base-URL}/embeddings auf.")
+        with c2:
+            if p["models"]:
+                model = st.selectbox("Modell", p["models"], key=f"emb_model_{preset}")
+            else:
+                model = st.text_input("Modell", value="", key=f"emb_model_{preset}", help="Modellname laut Endpunkt, z. B. bge-m3")
+        api_key = st.text_input("API-Key", type="password", key="emb_key",
+                                help="Nur in dieser Session im Speicher. Bei lokalen Servern meist leer.")
+        max_chars = st.slider("Max. Zeichen je Text (Kürzung vor dem Versand)", 2000, 60000, 20000, 1000, key="emb_max_chars")
+        if p["local"]:
+            st.info("Lokale Endpunkte funktionieren nur, wenn das Tool auf demselben Rechner läuft. "
+                    "Streamlit Cloud erreicht dein Localhost nicht.")
+        cfg = EmbeddingConfig(base_url=base_url.strip(), model=model.strip(), api_key=api_key.strip(), max_chars=int(max_chars))
+        b1, b2 = st.columns(2)
+        if b1.button("Verbindung testen", key="emb_test"):
+            if p["needs_key"] and not cfg.api_key:
+                st.error("Für dieses Preset wird ein API-Key benötigt.")
+            else:
+                try:
+                    st.success(f"Verbindung OK, Dimension {embed.test_connection(cfg)}")
+                except embed.EmbeddingError as e:
+                    st.error(f"Verbindung fehlgeschlagen: {e}")
+        if b2.button("Embedding-Cache leeren", key="emb_clear"):
+            st.session_state["emb_cache"] = {}
+            st.session_state.pop("computed", None)
+            st.success("Cache geleert.")
+    return cfg
+
+
+def compute_language_sets(pending: list[dict], emb_source: str, cfg: EmbeddingConfig, filter_idx: bool) -> list[LanguageSet]:
+    """Texte bauen oder abrufen, Embeddings berechnen, LanguageSets bilden. Wirft EmbeddingError bei Totalausfall."""
+    cache = st.session_state.setdefault("emb_cache", {})
+    out: list[LanguageSet] = []
+    for p in pending:
+        df = p["df"]
+        st.write(f"**{p['label']}**")
+        bar = st.progress(0.0)
+        keep, drop = io_utils.row_filter_reasons(df, p["url_col"], filter_idx, p["status_col"], p["index_col"])
+        errors: dict[int, str] = {}
+        if emb_source == EMB_FROM_TEXT:
+            texts, errs = textprep.build_texts(df, p["text_cols"], cfg.max_chars)
+            texts = {i: t for i, t in texts.items() if i in keep}
+            errors.update({i: r for i, r in errs.items() if i in keep})
+        else:
+            bar.progress(0.0, text="Seiten werden geladen …")
+            fr = fetch.fetch_main_texts(
+                {i: keep[i] for i in keep}, concurrency=5, timeout=10.0,
+                on_progress=lambda d, t: bar.progress(0.5 * d / max(t, 1), text=f"Seiten geladen: {d}/{t}"),
+            )
+            texts = {i: textprep.truncate(t, cfg.max_chars) for i, t in fr.texts.items()}
+            errors.update(fr.errors)
+        base = 0.5 if emb_source == EMB_FROM_PAGES else 0.0
+        res = embed.embed_texts(
+            texts, cfg, cache=cache,
+            on_progress=lambda d, t: bar.progress(base + (1 - base) * d / max(t, 1), text=f"Embeddings: {d}/{t}"),
+        )
+        if texts and not res.vectors:
+            raise embed.EmbeddingError(next(iter(res.errors.values()), "keine Vektoren erhalten"))
+        errors.update(res.errors)
+        bar.progress(1.0, text="fertig")
+        out.append(io_utils.language_set_from_vectors(
+            df, p["code"], p["label"], p["url_col"], res.vectors, errors, filter_idx, p["status_col"], p["index_col"],
+        ))
+    return out
+
+
 def _clean(v) -> str:
     return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
 
@@ -147,6 +244,13 @@ def _clean(v) -> str:
 # ============================================================
 st.subheader("1. Crawl-Dateien hochladen")
 mode = st.radio("Wie liegen deine Crawl-Daten vor?", [MODE_MULTI, MODE_SINGLE], horizontal=True)
+emb_source = st.radio(
+    "Embedding-Quelle",
+    [EMB_IN_FILE, EMB_FROM_TEXT, EMB_FROM_PAGES],
+    index=0,
+    help="Standard: Embeddings stehen bereits in der Datei. Alternativ berechnet das Tool sie aus Textspalten "
+         "oder lädt die Seiten selbst und extrahiert den Haupttext.",
+)
 
 sources: list[dict] = []
 
@@ -155,7 +259,7 @@ if mode == MODE_MULTI:
         "Eine Datei je Sprachvariante (CSV oder Excel), Mehrfachauswahl möglich",
         type=FILE_TYPES,
         accept_multiple_files=True,
-        help="Mindestens eine URL-Spalte und eine Embedding-Spalte. Weitere Spalten werden ignoriert.",
+        help="Mindestens eine URL-Spalte; bei Quelle „in der Datei enthalten“ zusätzlich eine Embedding-Spalte. Weitere Spalten werden ignoriert.",
     )
     for f in files or []:
         raw = f.getvalue()
@@ -234,6 +338,9 @@ filter_idx = st.checkbox(
     value=True,
     help="Nutzt die Spalten 'Status Code'/'Statuscode' und 'Indexability'/'Indexierbarkeit', falls vorhanden.",
 )
+cfg: EmbeddingConfig | None = None
+if emb_source != EMB_IN_FILE:
+    cfg = render_embedding_settings()
 
 # ============================================================
 # 2. Sprachzuordnung
@@ -242,6 +349,7 @@ st.subheader("2. Sprachzuordnung und Spaltenerkennung")
 sets: list[LanguageSet] = []
 set_meta: list[dict] = []   # je Sprachvariante: Werte für die Ergebnis-Signatur
 invalid_codes = 0
+pending: list[dict] = []
 
 for src in sources:
     df = src["df"]
@@ -266,11 +374,30 @@ for src in sources:
                 code = st.text_input("hreflang-Code", value=code_default, key=f"{key}_code", help="z. B. de, de-AT, fr-CH")
         with c2:
             url_col = st.selectbox("URL-Spalte", cols, index=cols.index(url_guess) if url_guess in cols else 0, key=f"{key}_url")
+        emb_col = None
+        text_cols: list[str] = []
         with c3:
-            emb_col = st.selectbox("Embedding-Spalte", cols, index=cols.index(emb_guess) if emb_guess in cols else 0, key=f"{key}_emb")
+            if emb_source == EMB_IN_FILE:
+                emb_col = st.selectbox("Embedding-Spalte", cols, index=cols.index(emb_guess) if emb_guess in cols else 0, key=f"{key}_emb")
+            elif emb_source == EMB_FROM_TEXT:
+                suggested = textprep.suggest_text_columns(df)
+                text_cols = st.multiselect("Textspalten (Reihenfolge = Reihenfolge im Text)", cols, default=suggested,
+                                           key=f"{key}_textcols")
+            else:
+                st.caption(f"{len(df)} URLs werden geladen und mit Trafilatura extrahiert.")
+                if len(df) > FETCH_WARN_URLS:
+                    st.warning(f"{len(df)} URLs: Der Abruf dauert lange und die Session muss offen bleiben. "
+                               "Für große Sites ist der Crawl mit Screaming Frog der bessere Weg.")
 
-        if emb_guess is None:
+        if emb_source == EMB_IN_FILE and emb_guess is None:
             st.warning("Keine Embedding-Spalte automatisch erkannt. Bitte manuell auswählen.")
+        if emb_source == EMB_FROM_TEXT:
+            if not text_cols:
+                st.warning("Bitte mindestens eine Textspalte wählen.")
+            else:
+                _t, _ = textprep.build_texts(df, text_cols, cfg.max_chars)
+                avg = int(sum(len(t) for t in _t.values()) / max(len(_t), 1))
+                st.caption(f"{len(_t)} Texte, Ø {avg} Zeichen, ca. {textprep.estimate_tokens(_t.values())} Tokens")
         if filter_idx:
             missing = [n for n, c in (("Status-Code", status_col), ("Indexierbarkeit", index_col)) if c is None]
             if missing:
@@ -282,21 +409,57 @@ for src in sources:
             invalid_codes += 1
             continue
 
-        ls = build_cached(src["name"], src["raw"], code_n, src["label"], url_col, emb_col, filter_idx,
-                          status_col, index_col, src["row_idx"], io_utils.detect_note_column(df))
+        if emb_source == EMB_IN_FILE:
+            ls = build_cached(src["name"], src["raw"], code_n, src["label"], url_col, emb_col, filter_idx,
+                              status_col, index_col, src["row_idx"], io_utils.detect_note_column(df))
+            render_set_metrics(ls)
+            sets.append(ls)
+            set_meta.append({"key": key, "file_key": src["file_key"], "code": ls.code, "len": len(ls), "dim": ls.dim,
+                             "url_col": url_col, "emb_col": emb_col})
+        else:
+            pending.append({"df": df, "code": code_n, "label": src["label"], "url_col": url_col, "text_cols": text_cols,
+                            "status_col": status_col, "index_col": index_col, "key": key, "file_key": src["file_key"]})
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Gültige URLs", len(ls))
-        m2.metric("Embedding-Dimension", ls.dim)
-        m3.metric("Verworfen", len(ls.dropped))
-        if len(ls.dropped):
-            with st.expander(f"Verworfene Zeilen ({len(ls.dropped)})"):
-                st.dataframe(ls.dropped, width="stretch", hide_index=True)
-        if len(ls) == 0:
-            st.error("Keine gültigen URLs mit Embeddings in dieser Datei.")
+if emb_source != EMB_IN_FILE and invalid_codes == 0:
+    if emb_source == EMB_FROM_TEXT and any(not p["text_cols"] for p in pending):
+        st.stop()
+    emb_sig = (emb_source, cfg.base_url, cfg.model, cfg.max_chars, filter_idx,
+               tuple((p["key"], p["file_key"], p["code"], tuple(p["text_cols"]), p["url_col"]) for p in pending))
+    n_rows = sum(len(p["df"]) for p in pending)
+    hint = " text-embedding-3-small kostet ca. 0,02 $ je 1 Mio. Tokens." if "openai.com" in cfg.base_url else ""
+    st.caption(f"{n_rows} Zeilen in {len(pending)} Sprachvariante(n). Die Berechnung startet nur über den Button.{hint}")
+    if st.button("Embeddings berechnen", type="primary", key="emb_compute"):
+        if embed.PRESETS[st.session_state.get("emb_preset", "OpenAI")]["needs_key"] and not cfg.api_key:
+            st.error("Für dieses Preset wird ein API-Key benötigt.")
+        elif not cfg.base_url or not cfg.model:
+            st.error("Base-URL und Modell müssen gesetzt sein.")
+        else:
+            try:
+                with st.spinner("Embeddings werden berechnet …"):
+                    st.session_state["computed"] = {"sets": compute_language_sets(pending, emb_source, cfg, filter_idx),
+                                                    "sig": emb_sig}
+                st.session_state.pop("result", None)
+            except embed.EmbeddingError as e:
+                st.session_state.pop("computed", None)
+                st.error(f"Verbindung zum Endpunkt fehlgeschlagen ({cfg.base_url}): {e}")
+    comp = st.session_state.get("computed")
+    if not comp:
+        st.info("Bitte auf „Embeddings berechnen“ klicken, um fortzufahren.")
+        st.stop()
+    if comp["sig"] != emb_sig:
+        st.warning("Die Embeddings sind veraltet (Spalten, Dateien oder Einstellungen haben sich geändert). "
+                   "Bitte erneut auf „Embeddings berechnen“ klicken.")
+        st.stop()
+    for ls, p in zip(comp["sets"], pending):
+        with st.container(border=True):
+            st.markdown(f"**{p['label']}** – berechnet mit {cfg.model}")
+            render_set_metrics(ls)
+            st.download_button(f"📥 Embeddings als CSV ({ls.code})", io_utils.embeddings_csv(ls),
+                               f"embeddings_{ls.code}.csv", "text/csv", key=f"dl_emb_{p['key']}", on_click="ignore",
+                               help="Im Modus „Embeddings sind in der Datei enthalten“ direkt wieder verwendbar.")
         sets.append(ls)
-        set_meta.append({"key": key, "file_key": src["file_key"], "code": ls.code, "len": len(ls), "dim": ls.dim,
-                         "url_col": url_col, "emb_col": emb_col})
+        set_meta.append({"key": p["key"], "file_key": p["file_key"], "code": ls.code, "len": len(ls), "dim": ls.dim,
+                         "url_col": p["url_col"], "emb_col": f"berechnet:{cfg.model}"})
 
 codes = [s.code for s in sets]
 problems: list[str] = []
