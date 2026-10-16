@@ -72,6 +72,11 @@ oder lokal Ollama/LM Studio (nur wenn das Tool auf demselben Rechner läuft). Te
 gekürzt, die Berechnung startet nur per Button, und die fertigen Embeddings kannst du als CSV sichern und
 beim nächsten Mal ohne API-Kosten hochladen.
 
+**Threshold kalibrieren:** Welche Cosinus-Werte „gut“ sind, hängt vom Modell ab. OpenAI text-embedding-3
+liefert für echte Übersetzungen meist 0,85 und mehr, BGE-M3 oft nur 0,65–0,80. Setze den Threshold beim ersten
+Lauf niedrig (z. B. 0,60), schau dir die Score-Verteilung in der Mapping-Tabelle an und ziehe ihn dann so weit
+hoch, dass die klaren Fehlzuordnungen verschwinden.
+
 **Wichtig für gute Ergebnisse:**
 - Die Embeddings müssen von einem **multilingualen Modell** stammen (z. B. OpenAI text-embedding-3).
   Rein englische Modelle liefern über Sprachgrenzen hinweg keine brauchbaren Ähnlichkeiten.
