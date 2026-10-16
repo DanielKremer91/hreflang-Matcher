@@ -110,7 +110,7 @@ MODE_SINGLE = "Eine Gesamtdatei mit allen Sprachvarianten"
 CODE_MODE_REGION = "Sprache-Region (z. B. de-AT)"
 CODE_MODE_LANG = "Nur Sprache (z. B. de)"
 NO_XDEFAULT = "kein x-default"
-FILE_TYPES = ["csv", "xlsx", "xlsm"]
+FILE_TYPES = "csv xlsx xlsm".split()   # Upload-Endungen
 EMB_IN_FILE = "Embeddings sind in der Datei enthalten"
 EMB_FROM_TEXT = "Embeddings aus Textspalten berechnen"
 EMB_FROM_PAGES = "Embeddings aus den Seiteninhalten berechnen (Trafilatura)"
@@ -476,15 +476,13 @@ if emb_source != EMB_IN_FILE and invalid_codes == 0:
             try:
                 with st.spinner("Embeddings werden berechnet …"):
                     new_sets = compute_language_sets(pending, emb_source, cfg, filter_idx)
-                    # CSV-Payloads einmalig bei der Berechnung erzeugen, nicht bei jedem Rerun.
-                    st.session_state["computed"] = {"sets": new_sets, "sig": emb_sig,
-                                                    "csv": [io_utils.embeddings_csv(ls) for ls in new_sets]}
+                    st.session_state["computed"] = {"sets": new_sets, "sig": emb_sig}
                 st.session_state.pop("result", None)
             except embed.EmbeddingError as e:
                 st.session_state.pop("computed", None)
                 st.error(f"Verbindung zum Endpunkt fehlgeschlagen ({cfg.base_url}): {e}")
     comp = st.session_state.get("computed")
-    if comp is not None and any(k not in comp for k in ("sets", "sig", "csv")):   # ältere Codeversion
+    if comp is not None and any(k not in comp for k in ("sets", "sig")):   # ältere Codeversion
         st.session_state.pop("computed", None)
         comp = None
     if not comp:
@@ -494,11 +492,12 @@ if emb_source != EMB_IN_FILE and invalid_codes == 0:
         st.warning("Die Embeddings sind veraltet (Spalten, Dateien oder Einstellungen haben sich geändert). "
                    "Bitte erneut auf „Embeddings berechnen“ klicken.")
         st.stop()
-    for ls, p, csv_bytes in zip(comp["sets"], pending, comp["csv"]):
+    for ls, p in zip(comp["sets"], pending):
         with st.container(border=True):
             st.markdown(f"**{p['label']}** – berechnet mit {cfg.model}")
             render_set_metrics(ls)
-            st.download_button(f"📥 Embeddings als CSV ({ls.code})", csv_bytes,
+            # CSV erst beim Klick erzeugen: bei großen Läufen kein zweites Exemplar aller Vektoren im Speicher.
+            st.download_button(f"📥 Embeddings als CSV ({ls.code})", lambda ls=ls: io_utils.embeddings_csv(ls),
                                f"embeddings_{ls.code}.csv", "text/csv", key=f"dl_emb_{p['key']}", on_click="ignore",
                                help="Im Modus „Embeddings sind in der Datei enthalten“ direkt wieder verwendbar.")
         sets.append(ls)

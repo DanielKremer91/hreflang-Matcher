@@ -19,7 +19,7 @@ PRESETS: dict[str, dict] = {
     "LM Studio (lokal)": {"base_url": "http://localhost:1234/v1", "models": [], "local": True, "needs_key": False},
     "Eigener OpenAI-kompatibler Endpunkt": {"base_url": "", "models": [], "local": False, "needs_key": False},
 }
-CACHE_LIMIT = 50_000
+CACHE_LIMIT = 20_000
 RETRY_SLEEPS = (2, 4, 8)
 FAIL_PREFIX = "Embedding-Anfrage fehlgeschlagen: "
 _LENGTH_RE = re.compile(r"context length|maximum context|too long|max.*tokens|input length", re.I)

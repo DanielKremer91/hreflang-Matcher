@@ -66,6 +66,10 @@ def test_presets_exact():
     assert embed.PRESETS["Ollama (lokal)"]["local"] is True and embed.PRESETS["Ollama (lokal)"]["models"] == ["bge-m3"]
 
 
+def test_cache_limit():
+    assert embed.CACHE_LIMIT == 20_000
+
+
 def test_cache_key_depends_on_model_url_text():
     c1 = EmbeddingConfig("http://x/v1", "a")
     c2 = EmbeddingConfig("http://x/v1", "b")

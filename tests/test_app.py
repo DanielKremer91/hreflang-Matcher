@@ -273,7 +273,7 @@ def test_mode_b_pattern_change_marks_embeddings_stale():
     assert at.session_state["_embed_calls"] == 2
 
 
-def test_local_preset_model_is_editable_and_csv_payloads_cached():
+def test_local_preset_model_is_editable_and_csv_payloads_are_lazy():
     at = AppTest.from_string(_WRAPPER, default_timeout=60)
     at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
     at.run()
@@ -286,4 +286,7 @@ def test_local_preset_model_is_editable_and_csv_payloads_cached():
     assert not at.exception, at.exception
     assert at.session_state["_embed_cfg"] == ("http://localhost:11434/v1", "nomic-embed-text", 20000)
     comp = at.session_state["computed"]
-    assert len(comp["csv"]) == 2 and all(isinstance(b, bytes) and b for b in comp["csv"])
+    assert "csv" not in comp   # CSV wird erst beim Download erzeugt, nicht im Session-State gehalten
+    emb_buttons = [b.proto for b in at.get("download_button") if b.proto.label.startswith("📥 Embeddings als CSV")]
+    assert [b.label for b in emb_buttons] == ["📥 Embeddings als CSV (de)", "📥 Embeddings als CSV (fr)"]
+    assert all(b.deferred_file_id for b in emb_buttons)   # Callable, Daten entstehen erst beim Klick

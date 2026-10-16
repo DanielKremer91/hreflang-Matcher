@@ -18,7 +18,8 @@ Tests: `.venv/bin/python -m pytest`
 
 - Python 3.14 mit streamlit 1.66, pandas 3.0, numpy 2.5, trafilatura 2.3, requests 2.34 (Streamlit-Cloud-Standard)
 
-Python 3.10 oder neuer wird benötigt (trafilatura und requests). Die Testsuite läuft ohne Warnungen durch.
+Python 3.10 oder neuer wird benötigt (trafilatura und requests), außerdem streamlit 1.66 oder neuer
+(die Embedding-CSV wird erst beim Klick auf den Download erzeugt). Die Testsuite läuft ohne Warnungen durch.
 
 ## Deployment auf Streamlit Community Cloud
 
@@ -33,6 +34,8 @@ der Speicherbedarf bleibt gering.
 - Größere Crawls je Verzeichnis aufteilen oder die App lokal starten.
 - Upload-Limit: 200 MB je Datei (`server.maxUploadSize`).
 - CSV-Exporte ohne unnötige Spalten halten den Speicherbedarf niedrig.
+- Speicher beim Berechnen im Tool: ca. 6 KB je URL bei 1536 Dimensionen, ca. 12 KB bei 3072. Bei 5 × 5.000 URLs
+  sind das rund 150–300 MB für Vektoren plus Embedding-Cache. Große Läufe nach Sprachen aufteilen oder lokal rechnen.
 - Trafilatura-Modus: realistisch bis einige hundert URLs je Lauf; ab 500 URLs warnt das Tool.
   Seiten, die JavaScript zum Rendern brauchen, liefern wenig oder keinen Text.
 
