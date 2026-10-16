@@ -325,6 +325,11 @@ def test_pages_source_computes_with_fetched_texts():
     assert [s.code for s in comp["sets"]] == ["de", "fr"] and all(len(s) == 3 for s in comp["sets"])
     assert [m.value for m in at.metric if m.label == "Gültige URLs"] == ["3", "3"]
     assert any(b.label == "Let's Go" for b in at.button)
+    assert "fetch_cache" in at.session_state
+    _button(at, "Embedding-Cache leeren").click().run()
+    assert not at.exception, at.exception
+    assert "fetch_cache" not in at.session_state and "computed" not in at.session_state
+    assert any(m.value == "Cache geleert (Embeddings und geladene Seiten)." for m in at.success)
 
 
 def test_total_embedding_failure_shows_error_and_keeps_no_result():

@@ -110,7 +110,7 @@ MODE_SINGLE = "Eine Gesamtdatei mit allen Sprachvarianten"
 CODE_MODE_REGION = "Sprache-Region (z. B. de-AT)"
 CODE_MODE_LANG = "Nur Sprache (z. B. de)"
 NO_XDEFAULT = "kein x-default"
-FILE_TYPES = "csv xlsx xlsm".split()   # Upload-Endungen
+FILE_TYPES = ["csv", "xlsx", "xlsm"]
 EMB_IN_FILE = "Embeddings sind in der Datei enthalten"
 EMB_FROM_TEXT = "Embeddings aus Textspalten berechnen"
 EMB_FROM_PAGES = "Embeddings aus den Seiteninhalten berechnen (Trafilatura)"
@@ -212,8 +212,9 @@ def render_embedding_settings() -> EmbeddingConfig:
                     st.error(f"Verbindung fehlgeschlagen: {e}")
         if b2.button("Embedding-Cache leeren", key="emb_clear"):
             st.session_state["emb_cache"] = {}
+            st.session_state.pop("fetch_cache", None)   # geänderte Seiten werden neu geladen
             st.session_state.pop("computed", None)
-            st.success("Cache geleert.")
+            st.success("Cache geleert (Embeddings und geladene Seiten).")
     return cfg
 
 
