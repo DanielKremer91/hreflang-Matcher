@@ -25,6 +25,9 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == "/ok":
             body = ARTICLE_HTML.encode("utf-8")
             self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
+        elif self.path == "/latin":
+            body = ARTICLE_HTML.encode("utf-8")   # UTF-8-Bytes ohne charset im Header
+            self.send_response(200); self.send_header("Content-Type", "text/html")
         elif self.path == "/pdf":
             body = b"%PDF-1.4"
             self.send_response(200); self.send_header("Content-Type", "application/pdf")
@@ -70,6 +73,18 @@ def test_extract_main_text_empty_for_boilerplate_only():
 def test_fetch_one_ok(base):
     text, err = fetch.fetch_one(base + "/ok")
     assert err is None and "Modernisierung" in text
+
+
+def test_fetch_one_utf8_without_charset_header_keeps_umlauts(base):
+    text, err = fetch.fetch_one(base + "/latin")
+    assert err is None
+    assert "Küche" in text and "Maßnahmen" in text and "kostengünstig" in text and "für" in text
+    assert "Ã" not in text
+
+
+def test_extract_main_text_accepts_bytes():
+    text = fetch.extract_main_text(ARTICLE_HTML.encode("utf-8"), "https://example.com/de/kueche")
+    assert "Küche renovieren" in text and "Maßnahmen" in text
 
 
 @pytest.mark.parametrize("path,reason", [

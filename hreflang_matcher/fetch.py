@@ -12,8 +12,11 @@ USER_AGENT = "ONE-hreflang-Matcher/1.0 (+https://onebeyondsearch.com)"
 NO_TEXT = "kein Text extrahiert"
 
 
-def extract_main_text(html: str, url: str | None = None) -> str:
-    """Haupttext ohne Navigation/Footer/Kommentare/Tabellen; leer, wenn nichts extrahiert wurde."""
+def extract_main_text(html: str | bytes, url: str | None = None) -> str:
+    """Haupttext ohne Navigation/Footer/Kommentare/Tabellen; leer, wenn nichts extrahiert wurde.
+
+    Bytes werden bevorzugt: Trafilatura erkennt das Encoding aus Meta-Tag und Inhalt. requests würde
+    `text/html` ohne charset als ISO-8859-1 dekodieren und Umlaute zerstören."""
     if not html:
         return ""
     text = trafilatura.extract(
@@ -38,7 +41,7 @@ def fetch_one(url: str, timeout: float = 10.0, session: requests.Session | None 
         ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype and "html" not in ctype:
             return "", f"kein HTML ({ctype})"
-        text = extract_main_text(resp.text, url)
+        text = extract_main_text(resp.content, url)
         if not text:
             return "", NO_TEXT
         return text, None
