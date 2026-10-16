@@ -146,6 +146,21 @@ def embed_texts(
 
     batches = [missing[i:i + cfg.batch_size] for i in range(0, len(missing), cfg.batch_size)]
 
+    def consume(batch: list[tuple[int, str]], vecs: list[np.ndarray] | None, err: str | None) -> None:
+        nonlocal done
+        for pos, (_, text) in enumerate(batch):
+            key = cache_key(cfg, text)
+            for idx in groups[key]:
+                if err is not None:
+                    result.errors[idx] = FAIL_PREFIX + err
+                else:
+                    result.vectors[idx] = vecs[pos]
+                done += 1
+            if err is None:
+                cache[key] = vecs[pos]
+        if on_progress:
+            on_progress(done, total)
+
     def run(batch: list[tuple[int, str]]) -> tuple[list[tuple[int, str]], list[np.ndarray] | None, str | None]:
         session = session_factory()
         try:
@@ -155,20 +170,24 @@ def embed_texts(
         finally:
             session.close()
 
+    if batches:
+        # Erster Batch synchron: Ist der Endpunkt nicht erreichbar oder der Key falsch, erfährt der Aufrufer
+        # das nach einem Retry-Zyklus statt nach einem je Batch.
+        first = batches[0]
+        session = session_factory()
+        try:
+            vecs = embed_batch(cfg, [t for _, t in first], session, sleep)
+            consume(first, vecs, None)
+        except EmbeddingError:
+            raise
+        except Exception as e:
+            consume(first, None, str(e))
+        finally:
+            session.close()
+
     with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
-        for batch, vecs, err in pool.map(run, batches):
-            for pos, (_, text) in enumerate(batch):
-                key = cache_key(cfg, text)
-                for idx in groups[key]:
-                    if err is not None:
-                        result.errors[idx] = FAIL_PREFIX + err
-                    else:
-                        result.vectors[idx] = vecs[pos]
-                    done += 1
-                if err is None:
-                    cache[key] = vecs[pos]
-            if on_progress:
-                on_progress(done, total)
+        for batch, vecs, err in pool.map(run, batches[1:]):
+            consume(batch, vecs, err)
 
     while len(cache) > CACHE_LIMIT:
         cache.pop(next(iter(cache)))

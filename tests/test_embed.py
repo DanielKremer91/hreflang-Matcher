@@ -137,13 +137,30 @@ def test_embed_texts_batches_cache_and_errors(server):
     assert len(h.requests_seen) == 2 and res2.vectors[1].tolist() == _vec_for("b")
 
 
-def test_embed_texts_reports_batch_failure_per_row(server):
+def test_embed_texts_reports_later_batch_failure_per_row(server):
+    srv, h = server
+    h.script[:] = [(200, None), (401, {"error": {"message": "bad key"}})]
+    res = embed.embed_texts({0: "a", 1: "b", 2: "c"}, _cfg(srv, batch_size=2), max_workers=1, sleep=lambda s: None)
+    assert set(res.vectors) == {0, 1} and res.dim == 4
+    assert res.errors == {2: "Embedding-Anfrage fehlgeschlagen: HTTP 401 bad key"}
+
+
+def test_embed_texts_fails_fast_when_first_batch_fails_on_401(server):
     srv, h = server
     h.script[:] = [(401, {"error": {"message": "bad key"}})]
-    res = embed.embed_texts({0: "a", 1: "b"}, _cfg(srv, batch_size=2), max_workers=1, sleep=lambda s: None)
-    assert res.vectors == {} and res.dim == 0
-    assert res.errors == {0: "Embedding-Anfrage fehlgeschlagen: HTTP 401 bad key",
-                          1: "Embedding-Anfrage fehlgeschlagen: HTTP 401 bad key"}
+    with pytest.raises(embed.EmbeddingError) as e:
+        embed.embed_texts({i: f"t{i}" for i in range(6)}, _cfg(srv, batch_size=2), max_workers=2,
+                          sleep=lambda s: None)
+    assert "HTTP 401" in str(e.value) and len(h.requests_seen) == 1
+
+
+def test_embed_texts_fails_fast_when_endpoint_is_down():
+    sleeps = []
+    cfg = EmbeddingConfig(base_url="http://127.0.0.1:9/v1", model="m", timeout=1, batch_size=1)
+    with pytest.raises(embed.EmbeddingError) as e:
+        embed.embed_texts({i: f"t{i}" for i in range(5)}, cfg, max_workers=3, sleep=sleeps.append)
+    assert "Verbindungsfehler" in str(e.value)
+    assert sleeps == [2, 4, 8]   # nur der erste Batch durchläuft den Retry-Zyklus
 
 
 def test_cache_fifo_limit(monkeypatch, server):
