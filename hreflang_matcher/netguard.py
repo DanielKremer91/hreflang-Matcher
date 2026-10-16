@@ -12,22 +12,32 @@ UNRESOLVABLE = "Host nicht auflösbar"
 BAD_URL = "ungültige URL"
 
 
-def _is_forbidden(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, allow_loopback: bool) -> bool:
+_THIS_NETWORK = ipaddress.ip_network("0.0.0.0/8")
+
+
+def _is_forbidden(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, allow_loopback: bool,
+                  allow_private: bool) -> bool:
     mapped = getattr(ip, "ipv4_mapped", None)
     if mapped is not None:
         ip = mapped
     if ip.is_loopback:
         return not allow_loopback
-    # is_global deckt private Netze, Link-Local (169.254/16, fe80::/10), reservierte, unspezifizierte
-    # und Shared-Address-Bereiche ab; Multicast ist teils "global" und wird extra ausgeschlossen.
-    return (not ip.is_global or ip.is_private or ip.is_link_local or ip.is_reserved
-            or ip.is_multicast or ip.is_unspecified)
+    # Link-Local (169.254/16 mit Cloud-Metadaten, fe80::/10), Multicast, unspezifiziert, reserviert und
+    # 0.0.0.0/8 sind immer gesperrt, auch mit allow_private.
+    if (ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved
+            or (ip.version == 4 and ip in _THIS_NETWORK)):
+        return True
+    if allow_private and ip.is_private:   # RFC 1918, ULA fc00::/7
+        return False
+    # is_global deckt zusätzlich private Netze und Shared Address Space (100.64/10) ab.
+    return not ip.is_global or ip.is_private
 
 
-def check_url(url: str, allow_loopback: bool = False) -> str | None:
+def check_url(url: str, allow_loopback: bool = False, allow_private: bool = False) -> str | None:
     """Grund (deutsch), warum die URL nicht abgerufen werden darf, sonst None.
 
-    Alle Adressen, auf die der Host auflöst, müssen öffentlich sein (Loopback nur mit `allow_loopback`)."""
+    Alle Adressen, auf die der Host auflöst, müssen öffentlich sein. Loopback nur mit `allow_loopback`,
+    private Netze (RFC 1918, ULA) nur mit `allow_private`; Link-Local/Metadaten bleiben immer gesperrt."""
     try:
         parts = urlsplit(str(url or "").strip())
         port = parts.port
@@ -51,6 +61,6 @@ def check_url(url: str, allow_loopback: bool = False) -> str | None:
             ip = ipaddress.ip_address(addr)
         except ValueError:
             return INTERNAL
-        if _is_forbidden(ip, allow_loopback):
+        if _is_forbidden(ip, allow_loopback, allow_private):
             return INTERNAL
     return None

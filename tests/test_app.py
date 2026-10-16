@@ -37,6 +37,7 @@ def _fake_embed_texts(texts, cfg, cache=None, on_progress=None, **kw):
     st.session_state["_embed_calls"] = calls
     st.session_state["_embed_cfg"] = (cfg.base_url, cfg.model, cfg.max_chars)
     st.session_state["_embed_key"] = cfg.api_key
+    st.session_state["_embed_allow_private"] = kw.get("allow_private")
     if st.session_state.get("_embed_fail"):
         raise _emb.EmbeddingError(st.session_state["_embed_fail"])
     dims = st.session_state.get("_fake_dims")     # optional: Dimension je Aufruf
@@ -56,7 +57,10 @@ def _fake_fetch(urls, on_progress=None, cache=None, **kw):
 
 _orig_embed, _orig_test, _orig_fetch = _emb.embed_texts, _emb.test_connection, _fetch.fetch_main_texts
 _emb.embed_texts = _fake_embed_texts
-_emb.test_connection = lambda cfg: 8
+def _fake_test_connection(cfg, **kw):
+    st.session_state["_test_allow_private"] = kw.get("allow_private")
+    return 8
+_emb.test_connection = _fake_test_connection
 _fetch.fetch_main_texts = _fake_fetch
 with open({APP!r}, encoding="utf-8") as _fh:
     _src = _fh.read()
@@ -367,3 +371,37 @@ def test_api_key_is_kept_per_preset():
     next(s for s in at.selectbox if s.label == "Preset").set_value("Eigener OpenAI-kompatibler Endpunkt").run()
     assert not at.exception, at.exception
     assert next(t for t in at.text_input if t.label == "API-Key").value == ""   # OpenAI-Key geht nicht mit
+
+
+def _compute_text_mode(at):
+    at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
+    at.run()
+    _radio(at, "Embedding-Quelle").set_value("Embeddings aus Textspalten berechnen").run()
+    next(t for t in at.text_input if t.label == "API-Key").set_value("sk-test").run()
+    _button(at, "Verbindung testen").click().run()
+    _button(at, "Embeddings berechnen").click().run()
+    assert not at.exception, at.exception
+
+
+def test_private_endpoint_opt_in_off_by_default(monkeypatch):
+    monkeypatch.delenv("HREFLANG_ALLOW_PRIVATE_ENDPOINT", raising=False)
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    _compute_text_mode(at)
+    assert at.session_state["_embed_allow_private"] is False and at.session_state["_test_allow_private"] is False
+    assert not at.error
+
+
+def test_private_endpoint_opt_in_via_env(monkeypatch):
+    monkeypatch.setenv("HREFLANG_ALLOW_PRIVATE_ENDPOINT", "1")
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    _compute_text_mode(at)
+    assert at.session_state["_embed_allow_private"] is True and at.session_state["_test_allow_private"] is True
+
+
+def test_local_preset_hint_mentions_private_endpoint_variable():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
+    at.run()
+    _radio(at, "Embedding-Quelle").set_value("Embeddings aus Textspalten berechnen").run()
+    next(s for s in at.selectbox if s.label == "Preset").set_value("Ollama (lokal)").run()
+    assert any("HREFLANG_ALLOW_PRIVATE_ENDPOINT=1" in i.value for i in at.info)

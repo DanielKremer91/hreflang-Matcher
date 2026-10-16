@@ -85,6 +85,24 @@ def _post_once(cfg: EmbeddingConfig, texts: list[str], session: requests.Session
     return vecs
 
 
+_FATAL_PREFIXES = ("HTTP 401", "HTTP 403", "HTTP 404", "Ungültige Base-URL", "Ungültiger API-Key")
+
+
+def is_fatal(err: EmbeddingError) -> bool:
+    """True, wenn der Fehler jeden Batch treffen würde (Verbindung, Timeout/5xx nach Retries, Auth,
+    falscher Pfad, ungültige oder gesperrte Base-URL, kaputter Key). Datenabhängige Fehler (400 Länge, 413,
+    falsche Vektorzahl, unerwartete Antwort) betreffen nur ihren Batch."""
+    return isinstance(err, RetryableError) or str(err).startswith(_FATAL_PREFIXES)
+
+
+def check_base_url(cfg: EmbeddingConfig, allow_private: bool = False) -> None:
+    """Einmal je Lauf: Localhost ist erlaubt (Ollama, LM Studio), private Netze nur mit `allow_private`,
+    Link-Local/Cloud-Metadaten (169.254.169.254) nie. Wirft EmbeddingError (fatal)."""
+    reason = netguard.check_url(cfg.base_url, allow_loopback=True, allow_private=allow_private)
+    if reason:
+        raise EmbeddingError(f"Ungültige Base-URL {cfg.base_url!r}: {reason}")
+
+
 def embed_batch(
     cfg: EmbeddingConfig,
     texts: list[str],
@@ -93,11 +111,7 @@ def embed_batch(
 ) -> list[np.ndarray]:
     """Ein Batch mit Retry (429/5xx/Netz) und einmaliger Halbierung bei Längenfehlern (400).
 
-    Die Base-URL wird einmal je Batch per netguard geprüft: Localhost bleibt erlaubt (Ollama, LM Studio),
-    private Netze und Link-Local (z. B. Cloud-Metadaten 169.254.169.254) nicht."""
-    reason = netguard.check_url(cfg.base_url, allow_loopback=True)
-    if reason:
-        raise EmbeddingError(f"Ungültige Base-URL {cfg.base_url!r}: {reason}")
+    Prüft die Base-URL nicht selbst; das machen embed_texts und test_connection einmal je Lauf."""
     own_session = session is None
     session = session or requests.Session()
     attempt = 0
@@ -131,8 +145,11 @@ def embed_texts(
     session_factory: Callable[[], requests.Session] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     max_workers: int = 5,
+    allow_private: bool = False,
 ) -> EmbedResult:
-    """Vektoren je Zeilenindex; Cache-Treffer ohne Anfrage; Fehler je Zeile statt Abbruch."""
+    """Vektoren je Zeilenindex; Cache-Treffer ohne Anfrage; Fehler je Zeile statt Abbruch.
+
+    Fatale Fehler (is_fatal) im ersten, synchronen Batch werden geworfen statt als Zeilenfehler gemeldet."""
     cache = {} if cache is None else cache
     session_factory = session_factory or requests.Session
     result = EmbedResult()
@@ -155,6 +172,8 @@ def embed_texts(
         on_progress(done, total)
 
     batches = [missing[i:i + cfg.batch_size] for i in range(0, len(missing), cfg.batch_size)]
+    if batches:   # nur prüfen, wenn wirklich angefragt wird; reine Cache-Läufe brauchen kein Netz
+        check_base_url(cfg, allow_private)
 
     def consume(batch: list[tuple[int, str]], vecs: list[np.ndarray] | None, err: str | None) -> None:
         nonlocal done
@@ -186,13 +205,16 @@ def embed_texts(
     try:
         if batches:
             # Erster Batch synchron: Ist der Endpunkt nicht erreichbar oder der Key falsch, erfährt der
-            # Aufrufer das nach einem Retry-Zyklus statt nach einem je Batch.
+            # Aufrufer das nach einem Retry-Zyklus statt nach einem je Batch. Datenfehler dieses Batches
+            # werden wie bei allen anderen Batches zu Zeilenfehlern.
             first = batches[0]
             session = session_factory()
             try:
                 vecs = embed_batch(cfg, [t for _, t in first], session, sleep)
-            except EmbeddingError:
-                raise
+            except EmbeddingError as e:
+                if is_fatal(e):
+                    raise
+                consume(first, None, str(e))
             except Exception as e:
                 consume(first, None, str(e))
             else:
@@ -213,6 +235,7 @@ def embed_texts(
     return result
 
 
-def test_connection(cfg: EmbeddingConfig) -> int:
+def test_connection(cfg: EmbeddingConfig, allow_private: bool = False) -> int:
     """Schickt einen Ein-Wort-Text; gibt die Dimension zurück oder wirft EmbeddingError."""
+    check_base_url(cfg, allow_private)
     return int(embed_batch(cfg, ["test"], sleep=lambda s: None)[0].size)

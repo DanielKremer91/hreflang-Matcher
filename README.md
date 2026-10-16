@@ -35,7 +35,8 @@ der Speicherbedarf bleibt gering.
 - Upload-Limit: 200 MB je Datei (`server.maxUploadSize`).
 - CSV-Exporte ohne unnötige Spalten halten den Speicherbedarf niedrig.
 - Speicher beim Berechnen im Tool: ca. 6 KB je URL bei 1536 Dimensionen, ca. 12 KB bei 3072. Bei 5 × 5.000 URLs
-  sind das rund 150–300 MB für Vektoren plus Embedding-Cache. Große Läufe nach Sprachen aufteilen oder lokal rechnen.
+  sind das rund 150–300 MB für Vektoren plus Embedding-Cache, im Trafilatura-Modus zusätzlich ca. 60 KB je Seite
+  im Seiten-Cache (max. 5.000 Seiten). Große Läufe nach Sprachen aufteilen oder lokal rechnen.
 - Trafilatura-Modus: realistisch bis einige hundert URLs je Lauf; ab 500 URLs warnt das Tool.
   Seiten, die JavaScript zum Rendern brauchen, liefern wenig oder keinen Text.
 
@@ -45,7 +46,10 @@ Der Trafilatura-Modus ruft nur öffentliche http(s)-Adressen ab. Interne oder lo
 Netze, Link-Local wie die Cloud-Metadaten-Adresse 169.254.169.254) werden abgelehnt, auch wenn eine Seite per
 Weiterleitung dorthin zeigt. Je Seite gelten höchstens 5 Weiterleitungen, 5 MB und eine Gesamtfrist. Lokale
 Embedding-Endpunkte auf localhost (Ollama, LM Studio) sind dagegen bewusst erlaubt; private Netze und
-Link-Local bleiben auch dort gesperrt.
+Link-Local bleiben auch dort gesperrt. Embedding-Endpunkte im lokalen Netz (z. B. Docker `http://ollama:11434`,
+GPU-Rechner im LAN) lassen sich mit der Umgebungsvariable `HREFLANG_ALLOW_PRIVATE_ENDPOINT=1` (oder
+`allow_private_endpoint = true` in den Streamlit-Secrets) freischalten; Link-Local und Cloud-Metadaten bleiben
+gesperrt, der Trafilatura-Abruf bleibt strikt.
 
 ## Eingabedaten
 

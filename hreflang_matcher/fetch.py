@@ -15,6 +15,7 @@ from .models import FetchResult
 USER_AGENT = "ONE-hreflang-Matcher/1.0 (+https://onebeyondsearch.com)"
 NO_TEXT = "kein Text extrahiert"
 FETCH_CACHE_LIMIT = 5_000
+FETCH_CACHE_TEXT_CHARS = 60_000   # = Maximum des Kürzungs-Sliders; hält den Seiten-Cache bei ca. 60 KB je Seite
 MAX_BYTES = 5_000_000
 MAX_REDIRECTS = 5
 TIMEOUT = "Timeout"
@@ -174,7 +175,7 @@ def fetch_main_texts(
             idx, text, err = fut.result()
             if err is None:
                 result.texts[idx] = text
-                cache[urls[idx]] = text
+                cache[urls[idx]] = text[:FETCH_CACHE_TEXT_CHARS]
             else:
                 result.errors[idx] = err
             done += 1

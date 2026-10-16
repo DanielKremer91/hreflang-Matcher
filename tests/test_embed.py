@@ -246,16 +246,89 @@ def test_invalid_base_url_is_not_retried():
 @pytest.mark.parametrize("base_url", ["http://169.254.169.254/v1", "http://10.0.0.5:11434/v1", "ftp://x/v1"])
 def test_internal_base_url_rejected_without_request(base_url):
     sleeps = []
+    cfg = EmbeddingConfig(base_url=base_url, model="m")
     with pytest.raises(embed.EmbeddingError) as e:
-        embed.embed_batch(EmbeddingConfig(base_url=base_url, model="m"), ["x"], sleep=sleeps.append)
+        embed.embed_texts({0: "x"}, cfg, sleep=sleeps.append)
     assert "Ungültige Base-URL" in str(e.value) and sleeps == []
     assert "erlaubt" in str(e.value)   # Grund aus netguard
+    with pytest.raises(embed.EmbeddingError) as e:
+        embed.test_connection(cfg)
+    assert "Ungültige Base-URL" in str(e.value)
+
+
+def test_private_base_url_allowed_with_opt_in(monkeypatch):
+    seen = []
+    monkeypatch.setattr(embed, "_post_once", lambda cfg, texts, session: seen.append(texts) or
+                        [np.ones(4, dtype=np.float32) for _ in texts])
+    cfg = EmbeddingConfig(base_url="http://10.0.0.5:11434/v1", model="m")
+    assert set(embed.embed_texts({0: "x"}, cfg, allow_private=True).vectors) == {0}
+    assert embed.test_connection(cfg, allow_private=True) == 4
+    with pytest.raises(embed.EmbeddingError):
+        embed.test_connection(EmbeddingConfig(base_url="http://169.254.169.254/v1", model="m"), allow_private=True)
+
+
+def test_base_url_checked_once_per_run_not_per_batch(server, monkeypatch):
+    srv, h = server
+    calls = []
+    real = embed.netguard.check_url
+    monkeypatch.setattr(embed.netguard, "check_url", lambda *a, **k: (calls.append(a), real(*a, **k))[1])
+    res = embed.embed_texts({i: f"t{i}" for i in range(6)}, _cfg(srv, batch_size=1), max_workers=2)
+    assert len(res.vectors) == 6 and len(calls) == 1
+    embed.embed_batch(_cfg(srv), ["x"])   # embed_batch prüft nicht selbst
+    assert len(calls) == 1
+
+
+def test_cached_run_needs_no_url_check(monkeypatch):
+    cfg = EmbeddingConfig(base_url="http://gibt-es-nicht.invalid/v1", model="m")
+    cache = {embed.cache_key(cfg, "x"): np.ones(4, dtype=np.float32)}
+    assert set(embed.embed_texts({0: "x"}, cfg, cache=cache).vectors) == {0}
 
 
 def test_loopback_base_url_allowed(server):
     srv, h = server
     cfg = EmbeddingConfig(base_url=f"http://localhost:{srv.server_port}/v1", model="m")
-    assert len(embed.embed_batch(cfg, ["x"])) == 1
+    assert embed.test_connection(cfg) == 4
+
+
+@pytest.mark.parametrize("err,fatal", [
+    (embed.RetryableError("Verbindungsfehler: ConnectionError"), True),
+    (embed.RetryableError("HTTP 503 down"), True),
+    (embed.EmbeddingError("HTTP 401 bad key"), True),
+    (embed.EmbeddingError("HTTP 403 forbidden"), True),
+    (embed.EmbeddingError("HTTP 404 not found"), True),
+    (embed.EmbeddingError("Ungültige Base-URL 'x': Host nicht auflösbar"), True),
+    (embed.EmbeddingError("Ungültiger API-Key (nicht kodierbares Zeichen)"), True),
+    (embed.EmbeddingError("HTTP 400 context length"), False),
+    (embed.EmbeddingError("HTTP 413 too large"), False),
+    (embed.EmbeddingError("Endpunkt lieferte 1 Vektoren für 2 Texte"), False),
+    (embed.EmbeddingError("Unerwartete Antwort des Endpunkts: 'data'"), False),
+])
+def test_is_fatal(err, fatal):
+    assert embed.is_fatal(err) is fatal
+
+
+def _fail_first(message):
+    def fake(cfg, texts, session):
+        if texts[0].startswith("a"):
+            raise embed.EmbeddingError(message)
+        return [np.full(4, float(len(t)), dtype=np.float32) for t in texts]
+    return fake
+
+
+def test_data_error_in_first_batch_becomes_row_errors(monkeypatch):
+    monkeypatch.setattr(embed, "_post_once", _fail_first("HTTP 400 context length"))
+    cfg = EmbeddingConfig("http://127.0.0.1:9/v1", "m", batch_size=2)
+    res = embed.embed_texts({0: "a1", 1: "a2", 2: "b", 3: "c"}, cfg, max_workers=1, sleep=lambda s: None)
+    assert set(res.errors) == {0, 1} and set(res.vectors) == {2, 3}
+    assert res.errors[0] == "Embedding-Anfrage fehlgeschlagen: HTTP 400 context length"
+
+
+def test_auth_error_in_first_batch_raises(monkeypatch):
+    monkeypatch.setattr(embed, "_post_once", _fail_first("HTTP 401 bad key"))
+    cfg = EmbeddingConfig("http://127.0.0.1:9/v1", "m", batch_size=2)
+    with pytest.raises(embed.EmbeddingError) as e:
+        embed.embed_texts({0: "a1", 1: "a2", 2: "b"}, cfg, max_workers=1, sleep=lambda s: None)
+    assert "HTTP 401" in str(e.value)
 
 
 def test_unexpected_exception_becomes_row_errors(monkeypatch):

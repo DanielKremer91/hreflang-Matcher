@@ -60,3 +60,12 @@ def test_public_host_allowed():
     except socket.gaierror:
         pytest.skip("DNS nicht verfügbar")
     assert netguard.check_url("https://example.com/") is None
+
+
+def test_allow_private_permits_rfc1918_and_ula_only():
+    for url in ("http://10.0.0.1/", "http://192.168.1.20:11434/", "http://172.16.5.5/", "http://[fd00::1]/"):
+        assert netguard.check_url(url, allow_private=True) is None, url
+    for url in ("http://169.254.169.254/", "http://[fe80::1]/", "http://224.0.0.1/", "http://0.0.0.0/",
+                "http://0.1.2.3/"):
+        assert netguard.check_url(url, allow_loopback=True, allow_private=True) == INTERNAL, url
+    assert netguard.check_url("http://127.0.0.1:1/", allow_private=True) == INTERNAL   # Loopback separat

@@ -264,3 +264,10 @@ def test_fetch_cache_fifo_limit(base, monkeypatch):
     cache = {"a": "1", "b": "2"}
     fetch.fetch_main_texts({0: base + "/ok"}, timeout=5, cache=cache, allow_private=True)
     assert list(cache) == ["b", base + "/ok"]
+
+
+def test_fetch_cache_stores_at_most_60000_chars(monkeypatch):
+    monkeypatch.setattr(fetch, "fetch_one", lambda url, **kw: ("x" * 70_000, None))
+    cache: dict = {}
+    res = fetch.fetch_main_texts({0: "https://example.com/lang"}, cache=cache)
+    assert len(cache["https://example.com/lang"]) == 60_000 and len(res.texts[0]) == 70_000

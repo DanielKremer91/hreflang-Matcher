@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 
 import pandas as pd
 import streamlit as st
@@ -115,6 +116,22 @@ EMB_IN_FILE = "Embeddings sind in der Datei enthalten"
 EMB_FROM_TEXT = "Embeddings aus Textspalten berechnen"
 EMB_FROM_PAGES = "Embeddings aus den Seiteninhalten berechnen (Trafilatura)"
 FETCH_WARN_URLS = 500
+PRIVATE_ENDPOINT_HINT = "Für Endpunkte im lokalen Netz: Umgebungsvariable HREFLANG_ALLOW_PRIVATE_ENDPOINT=1 setzen."
+
+
+def allow_private_endpoint() -> bool:
+    """Opt-in für Embedding-Endpunkte in privaten Netzen (Docker, LAN). Fetch-Ziele bleiben strikt."""
+    if os.environ.get("HREFLANG_ALLOW_PRIVATE_ENDPOINT", "").strip().lower() in ("1", "true", "yes", "ja"):
+        return True
+    try:
+        return bool(st.secrets.get("allow_private_endpoint", False))
+    except Exception:   # keine secrets.toml vorhanden
+        return False
+
+
+def endpoint_error(e: Exception) -> str:
+    msg = str(e)
+    return f"{msg} {PRIVATE_ENDPOINT_HINT}" if "interne oder lokale Adresse" in msg else msg
 
 
 # ============================================================
@@ -199,7 +216,7 @@ def render_embedding_settings() -> EmbeddingConfig:
         max_chars = st.slider("Max. Zeichen je Text (Kürzung vor dem Versand)", 2000, 60000, 20000, 1000, key="emb_max_chars")
         if p["local"]:
             st.info("Lokale Endpunkte funktionieren nur, wenn das Tool auf demselben Rechner läuft. "
-                    "Streamlit Cloud erreicht dein Localhost nicht.")
+                    f"Streamlit Cloud erreicht dein Localhost nicht. {PRIVATE_ENDPOINT_HINT}")
         cfg = EmbeddingConfig(base_url=base_url.strip(), model=model.strip(), api_key=api_key.strip(), max_chars=int(max_chars))
         b1, b2 = st.columns(2)
         if b1.button("Verbindung testen", key="emb_test"):
@@ -207,9 +224,10 @@ def render_embedding_settings() -> EmbeddingConfig:
                 st.error("Für dieses Preset wird ein API-Key benötigt.")
             else:
                 try:
-                    st.success(f"Verbindung OK, Dimension {embed.test_connection(cfg)}")
+                    dim = embed.test_connection(cfg, allow_private=allow_private_endpoint())
+                    st.success(f"Verbindung OK, Dimension {dim}")
                 except embed.EmbeddingError as e:
-                    st.error(f"Verbindung fehlgeschlagen: {e}")
+                    st.error(f"Verbindung fehlgeschlagen: {endpoint_error(e)}")
         if b2.button("Embedding-Cache leeren", key="emb_clear"):
             st.session_state["emb_cache"] = {}
             st.session_state.pop("fetch_cache", None)   # geänderte Seiten werden neu geladen
@@ -244,7 +262,7 @@ def compute_language_sets(pending: list[dict], emb_source: str, cfg: EmbeddingCo
             errors.update(fr.errors)
         base = 0.5 if emb_source == EMB_FROM_PAGES else 0.0
         res = embed.embed_texts(
-            texts, cfg, cache=cache,
+            texts, cfg, cache=cache, allow_private=allow_private_endpoint(),
             on_progress=lambda d, t: bar.progress(base + (1 - base) * d / max(t, 1), text=f"Embeddings: {d}/{t}"),
         )
         if texts and not res.vectors:
@@ -481,7 +499,7 @@ if emb_source != EMB_IN_FILE and invalid_codes == 0:
                 st.session_state.pop("result", None)
             except embed.EmbeddingError as e:
                 st.session_state.pop("computed", None)
-                st.error(f"Verbindung zum Endpunkt fehlgeschlagen ({cfg.base_url}): {e}")
+                st.error(f"Verbindung zum Endpunkt fehlgeschlagen ({cfg.base_url}): {endpoint_error(e)}")
     comp = st.session_state.get("computed")
     if comp is not None and any(k not in comp for k in ("sets", "sig")):   # ältere Codeversion
         st.session_state.pop("computed", None)
