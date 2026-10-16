@@ -81,7 +81,30 @@ def parse_vector(value) -> np.ndarray | None:
     return np.asarray([float(x) for x in nums], dtype=np.float32)
 
 
-def _read_csv(raw: bytes, sep, encoding: str) -> pd.DataFrame:
+_DELIMITERS = [",", ";", "\t", "|"]
+
+
+def _detect_delimiter(text: str) -> str:
+    """Wählt das Trennzeichen aus der Kopfzeile und den folgenden bis zu 20 nicht leeren Zeilen.
+
+    Ein Kandidat muss in der Kopfzeile vorkommen; gewinnt, wessen Anzahl in den meisten dieser Zeilen
+    gleich der Kopfzeilen-Anzahl ist (Gleichstand: Reihenfolge in _DELIMITERS). Ohne Treffer: ","."""
+    lines = [ln for ln in text.splitlines() if ln.strip()][:21]
+    if not lines:
+        return ","
+    header = lines[0]
+    best, best_score = ",", 0
+    for cand in _DELIMITERS:
+        n = header.count(cand)
+        if n < 1:
+            continue
+        score = sum(1 for ln in lines if ln.count(cand) == n)
+        if score > best_score:
+            best, best_score = cand, score
+    return best
+
+
+def _read_csv(raw: bytes, sep: str, encoding: str) -> pd.DataFrame:
     """Liest eine CSV und zählt fehlerhafte Zeilen (zu viele Felder) in df.attrs["bad_lines"]."""
     bad_lines: list[list[str]] = []
     df = pd.read_csv(
@@ -106,7 +129,8 @@ def read_any_file(name: str, raw: bytes) -> pd.DataFrame:
         last_err = None
         for enc in ("utf-8-sig", "utf-8", "cp1252", "latin1"):
             try:
-                df = _read_csv(raw, None, enc)
+                delim = _detect_delimiter(raw.decode(enc, errors="replace"))
+                df = _read_csv(raw, delim, enc)
                 if df.shape[1] >= 1:
                     return df
             except UnicodeDecodeError as e:
@@ -114,11 +138,6 @@ def read_any_file(name: str, raw: bytes) -> pd.DataFrame:
                 continue
             except Exception as e:
                 last_err = e
-                for sep in (";", ",", "\t"):
-                    try:
-                        return _read_csv(raw, sep, enc)
-                    except Exception as e2:
-                        last_err = e2
         raise ValueError(f"CSV konnte nicht gelesen werden: {last_err}")
     try:
         df = pd.read_excel(BytesIO(raw))

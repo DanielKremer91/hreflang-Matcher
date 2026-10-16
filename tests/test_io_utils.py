@@ -93,6 +93,30 @@ class TestReadAnyFile:
         raw = "Address,Embeddings\nhttps://a.de/x,\"[0.1, 0.2]\"\n".encode("utf-8")
         assert io_utils.read_any_file("crawl.csv", raw).attrs["bad_lines"] == 0
 
+    def test_single_column_urls(self):
+        raw = (
+            b"Address\n"
+            b"https://de.wikipedia.org/wiki/Kochfeld\n"
+            b"https://de.wikipedia.org/wiki/Dampfgaren\n"
+            b"https://de.wikipedia.org/wiki/Dunstabzugshaube\n"
+            b"https://de.wikipedia.org/wiki/Geschirrsp%C3%BClmaschine\n"
+        )
+        df = io_utils.read_any_file("urls_de.csv", raw)
+        assert list(df.columns) == ["Address"]
+        assert len(df) == 4
+        assert df.attrs["bad_lines"] == 0
+
+    def test_single_column_with_comma_inside_quoted_value(self):
+        raw = b'Address\n"https://a.com/x?a=1,b=2"\nhttps://a.com/y\n'
+        df = io_utils.read_any_file("urls.csv", raw)
+        assert list(df.columns) == ["Address"]
+        assert len(df) == 2
+
+    def test_pipe_delimited(self):
+        raw = b'Address|Embedding\nhttps://a.com/x|"[0.1, 0.2]"\n'
+        df = io_utils.read_any_file("crawl.csv", raw)
+        assert list(df.columns) == ["Address", "Embedding"]
+
     def test_xlsx(self, tmp_path):
         p = tmp_path / "c.xlsx"
         pd.DataFrame({"Address": ["https://a.de/x"], "Embeddings": ["[0.1, 0.2]"]}).to_excel(p, index=False)
