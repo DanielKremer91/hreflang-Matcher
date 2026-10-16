@@ -248,7 +248,8 @@ eine Zeile, auch ohne Treffer (URL leer). Spalten `Pivot-URL (<pivot>)`,
 `Sprache`, `URL`, `Score`, `Methode`, `Konfidenz`, `Grund`, `Zweitbeste URL`,
 `Zweitbester Score`, `Bevorzugte Pivot-URL`, `Score bevorzugte Pivot-URL`,
 `Cluster-Konfidenz`, `x-default-Fallback`. Die App zeigt und exportiert dieses
-Format als „Mapping“. Das kompakte Mapping (nur URLs + Score) bleibt wide.
+Format als „Mapping“. Das kompakte Mapping (nur URLs + Score) ist ebenfalls long:
+`Pivot-URL (<pivot>)`, `Sprache`, `URL`, `Score`.
 
 **Mapping-Tabelle (wide, `mapping_table`, weiterhin in der Bibliothek):** Spalten
 `Pivot-URL (<code>)`, dann je andere Sprache

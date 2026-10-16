@@ -645,7 +645,7 @@ if res:
                        "hreflang_mapping.csv", "text/csv", key="dl_map", on_click="ignore",
                        help="Long-Format: je Pivot-URL und Zielsprache eine Zeile mit Methode, Konfidenz, Grund, "
                             "zweitbestem Kandidaten und bevorzugter Pivot-URL.")
-    d2.download_button("📥 Kompaktes Mapping als CSV (nur URLs + Score)", res["lean_csv"],
+    d2.download_button("📥 Kompaktes Mapping als CSV (nur URLs + Score, Long-Format)", res["lean_csv"],
                        "hreflang_mapping_kompakt.csv", "text/csv", key="dl_lean", on_click="ignore",
                        help="Nur Pivot-URL sowie je Sprache die zugeordnete URL und der Cosinus-Score.")
 
