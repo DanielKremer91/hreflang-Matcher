@@ -100,19 +100,15 @@ def mapping_table_long(
 
 
 def lean_mapping_table(clusters: list[Cluster], codes: list[str], pivot_code: str) -> pd.DataFrame:
-    """Kompakte Zuordnung: Pivot-URL, je Sprache nur URL und Cosinus-Score."""
+    """Kompakte Zuordnung im Long-Format: je Pivot-URL und Zielsprache eine Zeile mit URL und Cosinus-Score."""
     others = [c for c in codes if c != pivot_code]
-    cols = [f"Pivot-URL ({pivot_code})"]
-    for c in others:
-        cols += [f"URL ({c})", f"Score ({c})"]
+    cols = [f"Pivot-URL ({pivot_code})", "Sprache", "URL", "Score"]
     rows = []
     for cl in clusters:
-        row = {cols[0]: cl.pivot_url}
         for c in others:
             m = cl.matches.get(c)
-            row[f"URL ({c})"] = m.other_url if m else ""
-            row[f"Score ({c})"] = m.score if m else None
-        rows.append(row)
+            rows.append({cols[0]: cl.pivot_url, "Sprache": c,
+                         "URL": m.other_url if m else "", "Score": m.score if m else None})
     return pd.DataFrame(rows, columns=cols)
 
 

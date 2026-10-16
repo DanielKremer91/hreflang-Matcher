@@ -122,18 +122,18 @@ class TestLeanMappingTable:
         sets, result = scenario
         cl = output.build_clusters(result, sets)
         df = output.lean_mapping_table(cl, ["de", "fr", "en"], "de")
-        assert list(df.columns) == ["Pivot-URL (de)", "URL (fr)", "Score (fr)", "URL (en)", "Score (en)"]
-        assert len(df) == 3
-        r0 = df.iloc[0]
-        assert r0["Pivot-URL (de)"] == "https://a.com/de/1"
-        assert r0["URL (fr)"] == "https://a.com/fr/1" and r0["Score (fr)"] == 1.0
-        assert r0["URL (en)"] == "https://a.com/en/1" and r0["Score (en)"] == 0.95
-        r2 = df.iloc[2]
-        assert r2["URL (fr)"] == "" and pd.isna(r2["Score (fr)"])
+        assert list(df.columns) == ["Pivot-URL (de)", "Sprache", "URL", "Score"]
+        assert len(df) == 6   # 3 Pivot-URLs x 2 Sprachen
+        assert df["Sprache"].tolist() == ["fr", "en"] * 3
+        r0, r1 = df.iloc[0], df.iloc[1]
+        assert r0["Pivot-URL (de)"] == "https://a.com/de/1" and r0["URL"] == "https://a.com/fr/1" and r0["Score"] == 1.0
+        assert r1["URL"] == "https://a.com/en/1" and r1["Score"] == 0.95
+        r4 = df.iloc[4]   # de/3 ohne Treffer
+        assert r4["URL"] == "" and pd.isna(r4["Score"])
 
     def test_empty(self):
         df = output.lean_mapping_table([], ["de", "fr"], "de")
-        assert list(df.columns) == ["Pivot-URL (de)", "URL (fr)", "Score (fr)"] and df.empty
+        assert list(df.columns) == ["Pivot-URL (de)", "Sprache", "URL", "Score"] and df.empty
 
 
 class TestUnmatchedTable:
