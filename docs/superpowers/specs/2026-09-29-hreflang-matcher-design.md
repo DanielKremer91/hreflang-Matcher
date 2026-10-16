@@ -243,7 +243,14 @@ unmatched Pivot, unmatched L.
 Cluster-Konfidenz = „prüfen“, sobald ein Mitglied „prüfen“ ist, sonst
 „sicher“. Nicht-Pivot-URLs ohne Pivot-Treffer bilden keinen Cluster.
 
-**Mapping-Tabelle (wide):** Spalten
+**Mapping-Tabelle (long, seit 2026-10-16):** je Pivot-URL und Zielsprache
+eine Zeile, auch ohne Treffer (URL leer). Spalten `Pivot-URL (<pivot>)`,
+`Sprache`, `URL`, `Score`, `Methode`, `Konfidenz`, `Grund`, `Zweitbeste URL`,
+`Zweitbester Score`, `Bevorzugte Pivot-URL`, `Score bevorzugte Pivot-URL`,
+`Cluster-Konfidenz`, `x-default-Fallback`. Die App zeigt und exportiert dieses
+Format als „Mapping“. Das kompakte Mapping (nur URLs + Score) bleibt wide.
+
+**Mapping-Tabelle (wide, `mapping_table`, weiterhin in der Bibliothek):** Spalten
 `Pivot-URL (<code>)`, dann je andere Sprache
 `URL (<code>)`, `Score (<code>)`, `Methode (<code>)`, `Konfidenz (<code>)`,
 `Grund (<code>)`, `Zweitbeste URL (<code>)`, `Zweitbester Score (<code>)`,

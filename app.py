@@ -593,7 +593,7 @@ if st.button("Let's Go", type="primary"):
             result = matching.run_matching(sets, pivot_code, threshold, band, min_margin, use_slug)
             clusters = output.build_clusters(result, sets)
             codes_sorted = [pivot_code] + sorted(c for c in codes if c != pivot_code)
-            mapping = output.mapping_table(clusters, codes_sorted, pivot_code, x_default_code)
+            mapping = output.mapping_table_long(clusters, codes_sorted, pivot_code, x_default_code)
             unmatched = output.unmatched_table(result, sets)
             html_out = output.html_blocks(clusters, pivot_code, x_default_code, code_mode, include_review)
             st.session_state["result"] = {
@@ -643,7 +643,8 @@ if res:
     d1, d2 = st.columns(2)
     d1.download_button("📥 Mapping als CSV herunterladen", res["mapping_csv"],
                        "hreflang_mapping.csv", "text/csv", key="dl_map", on_click="ignore",
-                       help="Alle Spalten: Methode, Konfidenz, Grund, zweitbester Kandidat, bevorzugte Pivot-URL.")
+                       help="Long-Format: je Pivot-URL und Zielsprache eine Zeile mit Methode, Konfidenz, Grund, "
+                            "zweitbestem Kandidaten und bevorzugter Pivot-URL.")
     d2.download_button("📥 Kompaktes Mapping als CSV (nur URLs + Score)", res["lean_csv"],
                        "hreflang_mapping_kompakt.csv", "text/csv", key="dl_lean", on_click="ignore",
                        help="Nur Pivot-URL sowie je Sprache die zugeordnete URL und der Cosinus-Score.")

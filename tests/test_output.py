@@ -88,6 +88,35 @@ class TestMappingTable:
         assert r2["URL (fr)"] == "" and r2["Cluster-Konfidenz"] == "kein Treffer" and r2["x-default-Fallback"] == "nein"
 
 
+class TestMappingTableLong:
+    def test_one_row_per_pivot_and_language(self, scenario):
+        sets, result = scenario
+        cl = output.build_clusters(result, sets)
+        df = output.mapping_table_long(cl, ["de", "fr", "en"], "de", "en")
+        assert list(df.columns) == [
+            "Pivot-URL (de)", "Sprache", "URL", "Score", "Methode", "Konfidenz", "Grund",
+            "Zweitbeste URL", "Zweitbester Score", "Bevorzugte Pivot-URL", "Score bevorzugte Pivot-URL",
+            "Cluster-Konfidenz", "x-default-Fallback",
+        ]
+        assert len(df) == 6   # 3 Pivot-URLs x 2 Sprachen
+        assert df["Sprache"].tolist() == ["fr", "en"] * 3
+        r0 = df.iloc[0]
+        assert r0["Pivot-URL (de)"] == "https://a.com/de/1" and r0["URL"] == "https://a.com/fr/1" and r0["Methode"] == "slug"
+        assert r0["Cluster-Konfidenz"] == "sicher" and r0["x-default-Fallback"] == "nein"
+        r2 = df.iloc[2]   # de/2 -> fr/2, pruefen, en fehlt
+        assert r2["Konfidenz"] == "prüfen" and r2["Grund"] == "nicht reziprok"
+        assert r2["Zweitbeste URL"] == "https://a.com/fr/x" and r2["Zweitbester Score"] == 0.81
+        assert r2["Bevorzugte Pivot-URL"] == "https://a.com/de/3" and r2["Score bevorzugte Pivot-URL"] == 0.9
+        r3 = df.iloc[3]
+        assert r3["Sprache"] == "en" and r3["URL"] == "" and pd.isna(r3["Score"]) and r3["x-default-Fallback"] == "ja"
+        r4 = df.iloc[4]   # de/3 ohne Treffer
+        assert r4["URL"] == "" and r4["Cluster-Konfidenz"] == "kein Treffer"
+
+    def test_empty(self):
+        df = output.mapping_table_long([], ["de", "fr"], "de", None)
+        assert df.empty and df.columns[1] == "Sprache"
+
+
 class TestLeanMappingTable:
     def test_only_urls_and_scores(self, scenario):
         sets, result = scenario

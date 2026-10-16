@@ -67,6 +67,38 @@ def mapping_table(
     return pd.DataFrame(rows, columns=cols)
 
 
+def mapping_table_long(
+    clusters: list[Cluster], codes: list[str], pivot_code: str, x_default_code: str | None
+) -> pd.DataFrame:
+    """Long-Format: je Pivot-URL und Zielsprache eine Zeile, auch ohne Treffer (dann leere URL)."""
+    others = [c for c in codes if c != pivot_code]
+    cols = [f"Pivot-URL ({pivot_code})", "Sprache", "URL", "Score", "Methode", "Konfidenz", "Grund",
+            "Zweitbeste URL", "Zweitbester Score", "Bevorzugte Pivot-URL", "Score bevorzugte Pivot-URL",
+            "Cluster-Konfidenz", "x-default-Fallback"]
+    rows = []
+    for cl in clusters:
+        cluster_conf = cl.confidence if cl.matches else NO_MATCH_CONFIDENCE
+        fallback = "ja" if x_default_fallback(cl, x_default_code) else "nein"
+        for c in others:
+            m = cl.matches.get(c)
+            rows.append({
+                cols[0]: cl.pivot_url,
+                "Sprache": c,
+                "URL": m.other_url if m else "",
+                "Score": m.score if m else None,
+                "Methode": m.method if m else "",
+                "Konfidenz": m.confidence if m else "",
+                "Grund": m.reason if m else "",
+                "Zweitbeste URL": (m.second_url or "") if m else "",
+                "Zweitbester Score": m.second_score if m else None,
+                "Bevorzugte Pivot-URL": (m.preferred_pivot_url or "") if m else "",
+                "Score bevorzugte Pivot-URL": m.preferred_pivot_score if m else None,
+                "Cluster-Konfidenz": cluster_conf,
+                "x-default-Fallback": fallback,
+            })
+    return pd.DataFrame(rows, columns=cols)
+
+
 def lean_mapping_table(clusters: list[Cluster], codes: list[str], pivot_code: str) -> pd.DataFrame:
     """Kompakte Zuordnung: Pivot-URL, je Sprache nur URL und Cosinus-Score."""
     others = [c for c in codes if c != pivot_code]
