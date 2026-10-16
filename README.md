@@ -33,6 +33,8 @@ der Speicherbedarf bleibt gering.
 - Größere Crawls je Verzeichnis aufteilen oder die App lokal starten.
 - Upload-Limit: 200 MB je Datei (`server.maxUploadSize`).
 - CSV-Exporte ohne unnötige Spalten halten den Speicherbedarf niedrig.
+- Trafilatura-Modus: realistisch bis einige hundert URLs je Lauf; ab 500 URLs warnt das Tool.
+  Seiten, die JavaScript zum Rendern brauchen, liefern wenig oder keinen Text.
 
 ## Eingabedaten
 
@@ -47,14 +49,26 @@ der Speicherbedarf bleibt gering.
   Dimension haben. Excel schneidet Zellen bei 32.767 Zeichen ab, deshalb CSV nutzen.
 - Leere Embeddings (Screaming Frog konnte die Anfrage nicht ausführen, z. B. „input length exceeds the
   context length“) werden verworfen; der Grund aus „Prompt Request Status“ wird mit ausgegeben.
+- Alternativ berechnet das Tool die Embeddings selbst („Embedding-Quelle“): aus Textspalten
+  (z. B. Main Content Extraction, Title, H1) oder aus den Seiteninhalten per Trafilatura. Dafür ist
+  ein OpenAI-kompatibler Endpunkt nötig: OpenAI (API-Key), ein gehosteter Dienst oder lokal
+  Ollama/LM Studio (nur bei lokalem Start des Tools). Berechnete Embeddings lassen sich als CSV
+  exportieren und später ohne API-Kosten wieder hochladen.
 
 ## Ablauf
 
 1. Upload, Erkennung von URL- und Embedding-Spalte, hreflang-Code-Vorschlag je Datei.
+   Bei Quelle „berechnen“: Textspalten wählen oder URLs laden, Endpunkt einstellen, „Embeddings berechnen“ klicken.
 2. Pivot-Sprache wählen. Jede andere Sprache wird gegen die Pivot-Sprache gematcht.
 3. Optional Exact-Slug-Match als Vorstufe, danach Embedding-Matching mit greedy
    1:1-Zuordnung, Reziprozitäts-Check und Margin zum zweitbesten Kandidaten.
 4. Ausgabe: Mapping-CSV, Liste der URLs ohne Zuordnung, HTML-Datei mit einem
    hreflang-Block je Cluster-Mitglied inklusive Selbstreferenz und x-default.
+
+## Threshold kalibrieren
+
+Welche Cosinus-Werte „gut“ sind, hängt vom Modell ab: OpenAI text-embedding-3 liefert für echte Übersetzungen
+meist 0,85 und mehr, BGE-M3 oft nur 0,65–0,80. Setze den Threshold beim ersten Lauf niedrig (z. B. 0,60), schau dir
+die Score-Verteilung in der Mapping-Tabelle an und ziehe ihn dann so weit hoch, dass die klaren Fehlzuordnungen verschwinden.
 
 Details zum Design: `docs/superpowers/specs/2026-09-29-hreflang-matcher-design.md`

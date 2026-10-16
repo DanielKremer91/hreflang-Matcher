@@ -209,7 +209,7 @@ Modus „in der Datei enthalten“ direkt verwendbar (Spaltenerkennung greift
 
 Vor dem Button: „N Texte, ca. T Tokens“ (Zeichen/4). Bei OpenAI zusätzlich
 die Preisklasse als Caption („text-embedding-3-small: ca. 0,02 $ je 1 Mio.
-Tokens“). Keine Live-Preisabfrage.
+Tokens“). Keine Live-Preisabfrage. Der Hilfetext weist darauf hin, dass der sinnvolle Threshold modellabhängig ist (BGE-M3 typischerweise 0,65–0,80, OpenAI text-embedding-3 meist > 0,85).
 
 ### 5.9 Performance und Grenzen
 
