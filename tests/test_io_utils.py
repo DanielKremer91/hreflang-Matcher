@@ -112,6 +112,29 @@ class TestReadAnyFile:
         assert list(df.columns) == ["Address"]
         assert len(df) == 2
 
+    def test_single_column_with_unquoted_comma_in_value(self):
+        raw = b"Address\nhttps://a.com/c/shoes,boots\nhttps://a.com/x\n"
+        df = io_utils.read_any_file("urls.csv", raw)
+        assert list(df.columns) == ["Address"] and len(df) == 2
+        assert df["Address"].tolist() == ["https://a.com/c/shoes,boots", "https://a.com/x"]
+        assert df.attrs["bad_lines"] == 0
+
+    def test_single_column_quoted_value_is_unquoted(self):
+        raw = b'Address\n"https://a.com/x?a=1,b=2"\nhttps://a.com/y\n'
+        df = io_utils.read_any_file("urls.csv", raw)
+        assert df["Address"].tolist() == ["https://a.com/x?a=1,b=2", "https://a.com/y"]
+
+    def test_delimiter_detection_reads_at_most_2_mb(self, monkeypatch):
+        seen = []
+        real = io_utils._detect_delimiter
+        monkeypatch.setattr(io_utils, "_detect_delimiter", lambda text: (seen.append(len(text)), real(text))[1])
+        raw = b"Address;Title\n" + b"".join(b"https://a.com/p%06d;Titel mit etwas Text %06d\n" % (i, i)
+                                            for i in range(60_000))
+        assert len(raw) > 3_000_000
+        df = io_utils.read_any_file("big.csv", raw)
+        assert list(df.columns) == ["Address", "Title"] and len(df) == 60_000
+        assert seen and max(seen) <= 2_000_000
+
     def test_pipe_delimited(self):
         raw = b'Address|Embedding\nhttps://a.com/x|"[0.1, 0.2]"\n'
         df = io_utils.read_any_file("crawl.csv", raw)

@@ -82,18 +82,23 @@ def parse_vector(value) -> np.ndarray | None:
 
 
 _DELIMITERS = [",", ";", "\t", "|"]
+# Kommt kein Kandidat in der Kopfzeile vor, ist die Datei einspaltig. Gelesen wird dann mit einem Zeichen,
+# das in CSV-Dateien praktisch nie vorkommt (Unit Separator), damit Kommas in Werten erhalten bleiben.
+SINGLE_COLUMN_SEP = "\x1f"
+DETECT_BYTES = 2_000_000
 
 
 def _detect_delimiter(text: str) -> str:
     """Wählt das Trennzeichen aus der Kopfzeile und den folgenden bis zu 20 nicht leeren Zeilen.
 
     Ein Kandidat muss in der Kopfzeile vorkommen; gewinnt, wessen Anzahl in den meisten dieser Zeilen
-    gleich der Kopfzeilen-Anzahl ist (Gleichstand: Reihenfolge in _DELIMITERS). Ohne Treffer: ","."""
+    gleich der Kopfzeilen-Anzahl ist (Gleichstand: Reihenfolge in _DELIMITERS). Ohne Kandidat in der
+    Kopfzeile: SINGLE_COLUMN_SEP (einspaltige Datei)."""
     lines = [ln for ln in text.splitlines() if ln.strip()][:21]
     if not lines:
         return ","
     header = lines[0]
-    best, best_score = ",", 0
+    best, best_score = SINGLE_COLUMN_SEP, 0
     for cand in _DELIMITERS:
         n = header.count(cand)
         if n < 1:
@@ -129,7 +134,7 @@ def read_any_file(name: str, raw: bytes) -> pd.DataFrame:
         last_err = None
         for enc in ("utf-8-sig", "utf-8", "cp1252", "latin1"):
             try:
-                delim = _detect_delimiter(raw.decode(enc, errors="replace"))
+                delim = _detect_delimiter(raw[:DETECT_BYTES].decode(enc, errors="replace"))
                 df = _read_csv(raw, delim, enc)
                 if df.shape[1] >= 1:
                     return df
