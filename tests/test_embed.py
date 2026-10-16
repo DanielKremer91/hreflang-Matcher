@@ -1,6 +1,7 @@
 import json
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 import numpy as np
 import pytest
@@ -241,3 +242,69 @@ def test_embed_texts_deduplicates_identical_texts(server):
     assert len(h.requests_seen) == 1 and h.requests_seen[0]["body"]["input"] == ["a", "b"]
     assert set(res.vectors) == {0, 1, 2} and res.vectors[1].tolist() == _vec_for("a")
     assert progress[-1] == (3, 3)
+
+
+class _Interrupt(Exception):
+    """Simuliert den Abbruch durch einen Streamlit-Rerun."""
+
+
+class _SlowHandler(BaseHTTPRequestHandler):
+    # Erster Request (synchroner Probe-Batch) sofort, danach 1 s je Batch.
+    count = 0
+    lock = threading.Lock()
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(length) or b"{}")
+        with type(self).lock:
+            n = type(self).count
+            type(self).count += 1
+        if n > 0:
+            time.sleep(1.0)
+        raw = json.dumps({"data": [{"index": i, "embedding": _vec_for(t)} for i, t in enumerate(body["input"])]})
+        raw = raw.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def slow_server():
+    _SlowHandler.count = 0
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _SlowHandler)
+    srv.daemon_threads = True
+    t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+    t.start()
+    yield srv
+    srv.shutdown()
+    srv.server_close()
+    t.join()
+
+
+def test_interruption_returns_promptly_and_keeps_completed_batches(slow_server):
+    cfg = _cfg(slow_server, batch_size=1)
+    texts = {i: f"t{i}" for i in range(6)}   # 6 Batches
+    cache: dict = {}
+
+    raised_at: list[float] = []
+
+    def on_progress(d, t):
+        if d >= 2:   # erste Rückmeldung aus dem Pool (nach dem synchronen ersten Batch)
+            raised_at.append(time.monotonic())
+            raise _Interrupt()
+
+    start = time.monotonic()
+    with pytest.raises(_Interrupt):
+        embed.embed_texts(texts, cfg, cache=cache, on_progress=on_progress, max_workers=2)
+    end = time.monotonic()
+    assert end - start < 2.0, end - start
+    # Kein Warten auf laufende oder wartende Batches (blockierend: ca. 1 s nach dem Abbruch).
+    assert end - raised_at[0] < 0.5, end - raised_at[0]
+    keys = {embed.cache_key(cfg, t): t for t in texts.values()}
+    assert embed.cache_key(cfg, "t0") in cache and len(cache) == 2
+    assert all(cache[k].tolist() == _vec_for(keys[k]) for k in cache)

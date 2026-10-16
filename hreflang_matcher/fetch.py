@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 
 import requests
@@ -10,6 +10,7 @@ from .models import FetchResult
 
 USER_AGENT = "ONE-hreflang-Matcher/1.0 (+https://onebeyondsearch.com)"
 NO_TEXT = "kein Text extrahiert"
+FETCH_CACHE_LIMIT = 5_000
 
 
 def extract_main_text(html: str | bytes, url: str | None = None) -> str:
@@ -56,13 +57,24 @@ def fetch_main_texts(
     timeout: float = 10.0,
     on_progress: Callable[[int, int], None] | None = None,
     session_factory: Callable[[], requests.Session] | None = None,
+    cache: dict[str, str] | None = None,
 ) -> FetchResult:
-    """Parallel (max. `concurrency`) laden; Ergebnis je positionalem Zeilenindex."""
+    """Parallel (max. `concurrency`) laden; Ergebnis je positionalem Zeilenindex.
+
+    `cache` (URL -> Haupttext) überspringt bereits geladene Seiten; jeder erfolgreiche Abruf wird sofort
+    eingetragen, damit ein abgebrochener Lauf keine Arbeit verliert (FIFO, max. FETCH_CACHE_LIMIT)."""
     session_factory = session_factory or requests.Session
+    cache = {} if cache is None else cache
     result = FetchResult()
-    items = list(urls.items())
-    total = len(items)
-    done = 0
+    items: list[tuple[int, str]] = []
+    for idx, url in urls.items():
+        hit = cache.get(url)
+        if hit is not None:
+            result.texts[idx] = hit
+        else:
+            items.append((idx, url))
+    total = len(urls)
+    done = total - len(items)
 
     def run(item: tuple[int, str]) -> tuple[int, str, str | None]:
         idx, url = item
@@ -75,13 +87,22 @@ def fetch_main_texts(
             session.close()
         return idx, text, err
 
-    with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        for idx, text, err in pool.map(run, items):
+    # Ohne `with`: Bei einem Abbruch (z. B. Streamlit-Rerun) nicht auf wartende Abrufe warten.
+    pool = ThreadPoolExecutor(max_workers=max(1, concurrency))
+    try:
+        futures = [pool.submit(run, item) for item in items]
+        for fut in as_completed(futures):
+            idx, text, err = fut.result()
             if err is None:
                 result.texts[idx] = text
+                cache[urls[idx]] = text
             else:
                 result.errors[idx] = err
             done += 1
             if on_progress:
                 on_progress(done, total)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+        while len(cache) > FETCH_CACHE_LIMIT:
+            cache.pop(next(iter(cache)))
     return result

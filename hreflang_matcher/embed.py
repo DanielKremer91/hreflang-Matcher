@@ -4,7 +4,7 @@ import hashlib
 import re
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 
 import numpy as np
@@ -170,27 +170,33 @@ def embed_texts(
         finally:
             session.close()
 
-    if batches:
-        # Erster Batch synchron: Ist der Endpunkt nicht erreichbar oder der Key falsch, erfährt der Aufrufer
-        # das nach einem Retry-Zyklus statt nach einem je Batch.
-        first = batches[0]
-        session = session_factory()
-        try:
-            vecs = embed_batch(cfg, [t for _, t in first], session, sleep)
-            consume(first, vecs, None)
-        except EmbeddingError:
-            raise
-        except Exception as e:
-            consume(first, None, str(e))
-        finally:
-            session.close()
+    # Ohne `with`: Bei einem Abbruch (z. B. Streamlit-Rerun) nicht auf wartende Batches warten.
+    # Fertige Batches stehen da bereits im Cache.
+    pool = ThreadPoolExecutor(max_workers=max(1, max_workers))
+    try:
+        if batches:
+            # Erster Batch synchron: Ist der Endpunkt nicht erreichbar oder der Key falsch, erfährt der
+            # Aufrufer das nach einem Retry-Zyklus statt nach einem je Batch.
+            first = batches[0]
+            session = session_factory()
+            try:
+                vecs = embed_batch(cfg, [t for _, t in first], session, sleep)
+            except EmbeddingError:
+                raise
+            except Exception as e:
+                consume(first, None, str(e))
+            else:
+                consume(first, vecs, None)
+            finally:
+                session.close()
+        futures = [pool.submit(run, b) for b in batches[1:]]
+        for fut in as_completed(futures):
+            consume(*fut.result())
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+        while len(cache) > CACHE_LIMIT:
+            cache.pop(next(iter(cache)))
 
-    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
-        for batch, vecs, err in pool.map(run, batches[1:]):
-            consume(batch, vecs, err)
-
-    while len(cache) > CACHE_LIMIT:
-        cache.pop(next(iter(cache)))
     if result.vectors:
         counts = Counter(int(v.size) for v in result.vectors.values())
         result.dim = max(d for d, c in counts.items() if c == max(counts.values()))

@@ -233,9 +233,11 @@ def compute_language_sets(pending: list[dict], emb_source: str, cfg: EmbeddingCo
             errors.update({i: r for i, r in errs.items() if i in keep})
         else:
             bar.progress(0.0, text="Seiten werden geladen …")
+            # Bereits geladene Seiten (auch aus einem abgebrochenen Lauf) kommen aus dem Session-Cache.
             fr = fetch.fetch_main_texts(
                 {i: keep[i] for i in keep}, concurrency=5, timeout=10.0,
                 on_progress=lambda d, t: bar.progress(0.5 * d / max(t, 1), text=f"Seiten geladen: {d}/{t}"),
+                cache=st.session_state.setdefault("fetch_cache", {}),
             )
             texts = {i: textprep.truncate(t, cfg.max_chars) for i, t in fr.texts.items()}
             errors.update(fr.errors)

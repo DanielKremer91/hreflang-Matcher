@@ -1,6 +1,6 @@
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 import pytest
 
@@ -128,3 +128,67 @@ def test_fetch_main_texts_survives_unexpected_exception(base, monkeypatch):
     monkeypatch.setattr(fetch, "fetch_one", flaky)
     res = fetch.fetch_main_texts({0: base + "/ok", 1: base + "/boom", 2: base + "/ok"}, concurrency=2, timeout=5)
     assert set(res.texts) == {0, 2} and res.errors == {1: "Fehler: RuntimeError"}
+
+
+class _Interrupt(Exception):
+    """Simuliert den Abbruch durch einen Streamlit-Rerun."""
+
+
+class _SlowHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        time.sleep(1.0)
+        body = ARTICLE_HTML.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def slow_base():
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _SlowHandler)
+    srv.daemon_threads = True
+    t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+    t.start()
+    yield f"http://127.0.0.1:{srv.server_port}"
+    srv.shutdown()
+    srv.server_close()
+    t.join()
+
+
+def test_fetch_interruption_returns_promptly_and_keeps_completed_texts(slow_base):
+    urls = {i: f"{slow_base}/p{i}" for i in range(6)}
+    cache: dict = {}
+    raised_at: list[float] = []
+
+    def on_progress(d, t):
+        raised_at.append(time.monotonic())
+        raise _Interrupt()
+
+    start = time.monotonic()
+    with pytest.raises(_Interrupt):
+        fetch.fetch_main_texts(urls, concurrency=2, timeout=5, on_progress=on_progress, cache=cache)
+    end = time.monotonic()
+    assert end - start < 2.0, end - start
+    assert end - raised_at[0] < 0.5, end - raised_at[0]
+    assert len(cache) == 1
+    url, text = next(iter(cache.items()))
+    assert url in urls.values() and "Modernisierung" in text
+
+
+def test_fetch_main_texts_uses_cache_without_request(base):
+    cache = {base + "/missing": "Text aus dem Cache"}
+    res = fetch.fetch_main_texts({0: base + "/missing", 1: base + "/ok"}, concurrency=2, timeout=5, cache=cache)
+    assert res.texts[0] == "Text aus dem Cache" and "Modernisierung" in res.texts[1] and res.errors == {}
+    assert base + "/ok" in cache
+
+
+def test_fetch_cache_fifo_limit(base, monkeypatch):
+    monkeypatch.setattr(fetch, "FETCH_CACHE_LIMIT", 2)
+    cache = {"a": "1", "b": "2"}
+    fetch.fetch_main_texts({0: base + "/ok"}, timeout=5, cache=cache)
+    assert list(cache) == ["b", base + "/ok"]
