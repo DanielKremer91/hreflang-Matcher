@@ -10,6 +10,7 @@ from typing import Callable
 import numpy as np
 import requests
 
+from . import netguard
 from .models import EmbeddingConfig, EmbedResult
 
 PRESETS: dict[str, dict] = {
@@ -87,7 +88,13 @@ def embed_batch(
     session: requests.Session | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> list[np.ndarray]:
-    """Ein Batch mit Retry (429/5xx/Netz) und einmaliger Halbierung bei Längenfehlern (400)."""
+    """Ein Batch mit Retry (429/5xx/Netz) und einmaliger Halbierung bei Längenfehlern (400).
+
+    Die Base-URL wird einmal je Batch per netguard geprüft: Localhost bleibt erlaubt (Ollama, LM Studio),
+    private Netze und Link-Local (z. B. Cloud-Metadaten 169.254.169.254) nicht."""
+    reason = netguard.check_url(cfg.base_url, allow_loopback=True)
+    if reason:
+        raise EmbeddingError(f"Ungültige Base-URL {cfg.base_url!r}: {reason}")
     own_session = session is None
     session = session or requests.Session()
     attempt = 0

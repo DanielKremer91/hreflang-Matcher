@@ -39,6 +39,14 @@ der Speicherbedarf bleibt gering.
 - Trafilatura-Modus: realistisch bis einige hundert URLs je Lauf; ab 500 URLs warnt das Tool.
   Seiten, die JavaScript zum Rendern brauchen, liefern wenig oder keinen Text.
 
+## Sicherheit
+
+Der Trafilatura-Modus ruft nur öffentliche http(s)-Adressen ab. Interne oder lokale Ziele (localhost, private
+Netze, Link-Local wie die Cloud-Metadaten-Adresse 169.254.169.254) werden abgelehnt, auch wenn eine Seite per
+Weiterleitung dorthin zeigt. Je Seite gelten höchstens 5 Weiterleitungen, 5 MB und eine Gesamtfrist. Lokale
+Embedding-Endpunkte auf localhost (Ollama, LM Studio) sind dagegen bewusst erlaubt; private Netze und
+Link-Local bleiben auch dort gesperrt.
+
 ## Eingabedaten
 
 - CSV (empfohlen) oder Excel, eine Datei je Sprachvariante oder eine Gesamtdatei,

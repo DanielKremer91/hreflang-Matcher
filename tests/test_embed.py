@@ -228,11 +228,26 @@ def test_invalid_base_url_is_not_retried():
     assert "Ungültige Base-URL" in str(e.value) and sleeps == []
 
 
+@pytest.mark.parametrize("base_url", ["http://169.254.169.254/v1", "http://10.0.0.5:11434/v1", "ftp://x/v1"])
+def test_internal_base_url_rejected_without_request(base_url):
+    sleeps = []
+    with pytest.raises(embed.EmbeddingError) as e:
+        embed.embed_batch(EmbeddingConfig(base_url=base_url, model="m"), ["x"], sleep=sleeps.append)
+    assert "Ungültige Base-URL" in str(e.value) and sleeps == []
+    assert "erlaubt" in str(e.value)   # Grund aus netguard
+
+
+def test_loopback_base_url_allowed(server):
+    srv, h = server
+    cfg = EmbeddingConfig(base_url=f"http://localhost:{srv.server_port}/v1", model="m")
+    assert len(embed.embed_batch(cfg, ["x"])) == 1
+
+
 def test_unexpected_exception_becomes_row_errors(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("kaputt")
     monkeypatch.setattr(embed, "_post_once", boom)
-    cfg = EmbeddingConfig("http://x/v1", "m", batch_size=1)
+    cfg = EmbeddingConfig("http://127.0.0.1:9/v1", "m", batch_size=1)
     res = embed.embed_texts({0: "a", 1: "b"}, cfg, max_workers=1)
     assert res.vectors == {} and set(res.errors) == {0, 1}
     assert all("kaputt" in m for m in res.errors.values())
