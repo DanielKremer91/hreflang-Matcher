@@ -11,7 +11,8 @@ import hashlib
 import numpy as np
 import streamlit as st
 import hreflang_matcher.embed as _emb
-from hreflang_matcher.models import EmbedResult
+import hreflang_matcher.fetch as _fetch
+from hreflang_matcher.models import EmbedResult, FetchResult
 
 class _FakeUpload:
     def __init__(self, name, data, file_id):
@@ -27,28 +28,43 @@ def _fake_uploader(*args, **kwargs):
     return _FakeUpload(*single) if single else None
 st.file_uploader = _fake_uploader
 
-def _fake_vec(text):
+def _fake_vec(text, dim=8):
     h = hashlib.sha1(text.encode("utf-8")).digest()
-    return np.asarray([b / 255.0 for b in h[:8]], dtype=np.float32)
+    return np.asarray([b / 255.0 for b in h[:dim]], dtype=np.float32)
 
 def _fake_embed_texts(texts, cfg, cache=None, on_progress=None, **kw):
-    st.session_state["_embed_calls"] = st.session_state.get("_embed_calls", 0) + 1
+    calls = st.session_state.get("_embed_calls", 0) + 1
+    st.session_state["_embed_calls"] = calls
     st.session_state["_embed_cfg"] = (cfg.base_url, cfg.model, cfg.max_chars)
-    res = EmbedResult(vectors={{i: _fake_vec(t) for i, t in texts.items()}}, dim=8)
+    st.session_state["_embed_key"] = cfg.api_key
+    if st.session_state.get("_embed_fail"):
+        raise _emb.EmbeddingError(st.session_state["_embed_fail"])
+    dims = st.session_state.get("_fake_dims")     # optional: Dimension je Aufruf
+    dim = dims[calls - 1] if dims else 8
+    res = EmbedResult(vectors={{i: _fake_vec(t, dim) for i, t in texts.items()}}, dim=dim)
     if on_progress:
         on_progress(len(texts), len(texts))
     return res
 
-_orig_embed, _orig_test = _emb.embed_texts, _emb.test_connection
+def _fake_fetch(urls, on_progress=None, cache=None, **kw):
+    st.session_state["_fetch_calls"] = st.session_state.get("_fetch_calls", 0) + 1
+    st.session_state["_fetch_cache_is_session"] = cache is st.session_state.get("fetch_cache")
+    res = FetchResult(texts={{i: f"Haupttext von {{u}} " + "lorem " * 20 for i, u in urls.items()}})
+    if on_progress:
+        on_progress(len(urls), len(urls))
+    return res
+
+_orig_embed, _orig_test, _orig_fetch = _emb.embed_texts, _emb.test_connection, _fetch.fetch_main_texts
 _emb.embed_texts = _fake_embed_texts
 _emb.test_connection = lambda cfg: 8
+_fetch.fetch_main_texts = _fake_fetch
 with open({APP!r}, encoding="utf-8") as _fh:
     _src = _fh.read()
 try:
     exec(compile(_src, {APP!r}, "exec"))
 finally:
     st.file_uploader = _orig_uploader
-    _emb.embed_texts, _emb.test_connection = _orig_embed, _orig_test
+    _emb.embed_texts, _emb.test_connection, _fetch.fetch_main_texts = _orig_embed, _orig_test, _orig_fetch
 '''
 
 
@@ -290,3 +306,59 @@ def test_local_preset_model_is_editable_and_csv_payloads_are_lazy():
     emb_buttons = [b.proto for b in at.get("download_button") if b.proto.label.startswith("📥 Embeddings als CSV")]
     assert [b.label for b in emb_buttons] == ["📥 Embeddings als CSV (de)", "📥 Embeddings als CSV (fr)"]
     assert all(b.deferred_file_id for b in emb_buttons)   # Callable, Daten entstehen erst beim Klick
+
+
+EMB_FROM_PAGES = "Embeddings aus den Seiteninhalten berechnen (Trafilatura)"
+
+
+def test_pages_source_computes_with_fetched_texts():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
+    at.run()
+    _radio(at, "Embedding-Quelle").set_value(EMB_FROM_PAGES).run()
+    next(t for t in at.text_input if t.label == "API-Key").set_value("sk-test").run()
+    _button(at, "Embeddings berechnen").click().run()
+    assert not at.exception, at.exception
+    assert at.session_state["_fetch_calls"] == 2 and at.session_state["_embed_calls"] == 2
+    assert at.session_state["_fetch_cache_is_session"] is True   # geladene Texte bleiben in der Session
+    comp = at.session_state["computed"]
+    assert [s.code for s in comp["sets"]] == ["de", "fr"] and all(len(s) == 3 for s in comp["sets"])
+    assert [m.value for m in at.metric if m.label == "Gültige URLs"] == ["3", "3"]
+    assert any(b.label == "Let's Go" for b in at.button)
+
+
+def test_total_embedding_failure_shows_error_and_keeps_no_result():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
+    at.session_state["_embed_fail"] = "HTTP 503 down"
+    at.run()
+    _radio(at, "Embedding-Quelle").set_value("Embeddings aus Textspalten berechnen").run()
+    next(t for t in at.text_input if t.label == "API-Key").set_value("sk-test").run()
+    _button(at, "Embeddings berechnen").click().run()
+    assert not at.exception, at.exception
+    assert any("Verbindung zum Endpunkt fehlgeschlagen" in e.value and "HTTP 503 down" in e.value for e in at.error)
+    assert "computed" not in at.session_state
+    assert not any(b.label == "Let's Go" for b in at.button)
+
+
+def test_dimension_mismatch_after_compute_suggests_clearing_cache():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
+    at.session_state["_fake_dims"] = [8, 4]
+    at.run()
+    _radio(at, "Embedding-Quelle").set_value("Embeddings aus Textspalten berechnen").run()
+    next(t for t in at.text_input if t.label == "API-Key").set_value("sk-test").run()
+    _button(at, "Embeddings berechnen").click().run()
+    assert not at.exception, at.exception
+    assert any("Embedding-Cache leeren" in e.value and "Modellwechsel" in e.value for e in at.error)
+
+
+def test_api_key_is_kept_per_preset():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
+    at.run()
+    _radio(at, "Embedding-Quelle").set_value("Embeddings aus Textspalten berechnen").run()
+    next(t for t in at.text_input if t.label == "API-Key").set_value("sk-openai").run()
+    next(s for s in at.selectbox if s.label == "Preset").set_value("Eigener OpenAI-kompatibler Endpunkt").run()
+    assert not at.exception, at.exception
+    assert next(t for t in at.text_input if t.label == "API-Key").value == ""   # OpenAI-Key geht nicht mit

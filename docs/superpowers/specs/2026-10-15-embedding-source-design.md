@@ -179,7 +179,7 @@ lösen nichts aus. Ablauf je Quelle:
    vectors: dict[int, np.ndarray], errors: dict[int, str], filter_indexable,
    status_col, index_col) -> LanguageSet`, die denselben Filter- und
    Verwerfungspfad nutzt (gemeinsame Hilfsfunktion, kein Duplikat).
-8. Die fertigen Sets landen in `st.session_state["computed_sets"]` mit einer
+8. Die fertigen Sets landen in `st.session_state["computed"]` mit einer
    Signatur (Quellen-Keys, Spalten, Konfig, max_chars). Weicht die aktuelle
    Signatur ab, zeigt die UI „Embeddings veraltet, bitte neu berechnen“ und
    blockiert „Let's Go“ bis zur Neuberechnung.

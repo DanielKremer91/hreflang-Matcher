@@ -74,7 +74,7 @@ class EmbeddingConfig:
 
     base_url: str              # z. B. "https://api.openai.com/v1", "http://localhost:11434/v1"
     model: str                 # z. B. "text-embedding-3-small", "bge-m3"
-    api_key: str = ""          # leer bei lokalen Servern
+    api_key: str = field(default="", repr=False)   # leer bei lokalen Servern; nie in repr/Logs
     max_chars: int = 20000     # Kürzung je Text vor dem Versand
     batch_size: int = 64
     timeout: float = 60.0

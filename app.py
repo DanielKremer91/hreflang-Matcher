@@ -194,7 +194,7 @@ def render_embedding_settings() -> EmbeddingConfig:
             else:
                 model = st.text_input("Modell", value=p["models"][0] if p["models"] else "", key=f"emb_model_{preset}",
                                       help="Modellname laut Endpunkt, z. B. bge-m3")
-        api_key = st.text_input("API-Key", type="password", key="emb_key",
+        api_key = st.text_input("API-Key", type="password", key=f"emb_key_{preset}",
                                 help="Nur in dieser Session im Speicher. Bei lokalen Servern meist leer.")
         max_chars = st.slider("Max. Zeichen je Text (Kürzung vor dem Versand)", 2000, 60000, 20000, 1000, key="emb_max_chars")
         if p["local"]:
@@ -518,7 +518,10 @@ if any(len(s) == 0 for s in sets):
 try:
     io_utils.check_dimensions(sets)
 except ValueError as e:
-    problems.append(str(e))
+    msg = str(e)
+    if emb_source != EMB_IN_FILE:
+        msg += " Nach einem Modellwechsel bitte „Embedding-Cache leeren“ und neu berechnen."
+    problems.append(msg)
 if problems:
     for p in problems:
         st.error(p)

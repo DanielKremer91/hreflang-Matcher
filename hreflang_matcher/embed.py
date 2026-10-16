@@ -65,6 +65,9 @@ def _post_once(cfg: EmbeddingConfig, texts: list[str], session: requests.Session
     except (requests.exceptions.MissingSchema, requests.exceptions.InvalidSchema,
             requests.exceptions.InvalidURL) as e:
         raise EmbeddingError(f"Ungültige Base-URL: {cfg.base_url!r}") from e
+    except (UnicodeEncodeError, ValueError) as e:
+        # Header-Werte müssen Latin-1 ohne Steuerzeichen sein; betrifft praktisch nur den API-Key.
+        raise EmbeddingError("Ungültiger API-Key (nicht kodierbares Zeichen)") from e
     except requests.RequestException as e:
         raise RetryableError(f"Verbindungsfehler: {e.__class__.__name__}") from e
     if resp.status_code == 429 or resp.status_code >= 500:

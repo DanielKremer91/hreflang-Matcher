@@ -66,6 +66,21 @@ def test_presets_exact():
     assert embed.PRESETS["Ollama (lokal)"]["local"] is True and embed.PRESETS["Ollama (lokal)"]["models"] == ["bge-m3"]
 
 
+def test_api_key_hidden_from_repr():
+    cfg = EmbeddingConfig("http://x/v1", "m", api_key="sk-geheim")
+    assert "sk-geheim" not in repr(cfg) and cfg.api_key == "sk-geheim"
+
+
+@pytest.mark.parametrize("key", ["sk-€uro", "sk-a\nb"])
+def test_unencodable_api_key_is_clear_non_retryable_error(server, key):
+    srv, h = server
+    sleeps = []
+    with pytest.raises(embed.EmbeddingError) as e:
+        embed.embed_batch(_cfg(srv, key=key), ["x"], sleep=sleeps.append)
+    assert str(e.value) == "Ungültiger API-Key (nicht kodierbares Zeichen)"
+    assert sleeps == [] and h.requests_seen == []
+
+
 def test_cache_limit():
     assert embed.CACHE_LIMIT == 20_000
 
