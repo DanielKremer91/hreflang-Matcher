@@ -237,3 +237,53 @@ def test_in_file_source_unchanged():
     _button(at, "Let's Go").click().run()
     assert not at.exception, at.exception
     assert at.session_state.get("_embed_calls", 0) == 0
+
+
+def _single_text_csv() -> bytes:
+    rows = ["Address;Title;Main Content Extraction 1"]
+    for lang in ("de", "fr"):
+        for i in range(3):
+            rows.append(f"https://a.com/{lang}/p{i}/;Titel {lang} {i};Inhalt {lang} Seite {i} " + "lorem " * 20)
+    for slug in ("x", "y"):
+        rows.append(f"https://a.com/{slug};Titel {slug};Inhalt ohne Sprachpräfix {slug} " + "lorem " * 20)
+    return "\n".join(rows).encode("utf-8")
+
+
+def test_mode_b_pattern_change_marks_embeddings_stale():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_single"] = ("all.csv", _single_text_csv(), "id-all")
+    at.run()
+    at.radio[0].set_value("Eine Gesamtdatei mit allen Sprachvarianten").run()
+    _radio(at, "Embedding-Quelle").set_value("Embeddings aus Textspalten berechnen").run()
+    next(t for t in at.text_input if t.label == "API-Key").set_value("sk-test").run()
+    _button(at, "Embeddings berechnen").click().run()
+    assert not at.exception, at.exception
+    assert any(b.label == "Let's Go" for b in at.button)
+    assert any("passen auf kein Muster" in w.value for w in at.warning)
+
+    # Auffangzeile „.“ → de: die de-Gruppe bekommt die zwei URLs ohne Präfix, Key und Datei bleiben gleich.
+    at.session_state["pattern_editor"] = {
+        "edited_rows": {}, "added_rows": [{"Muster": ".", "hreflang-Code": "de"}], "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception, at.exception
+    assert not any("passen auf kein Muster" in w.value for w in at.warning)
+    assert any("veraltet" in w.value for w in at.warning)
+    assert not any(b.label == "Let's Go" for b in at.button)
+    assert at.session_state["_embed_calls"] == 2
+
+
+def test_local_preset_model_is_editable_and_csv_payloads_cached():
+    at = AppTest.from_string(_WRAPPER, default_timeout=60)
+    at.session_state["_fake_files"] = [("de.csv", _text_csv("de"), "id-de"), ("fr.csv", _text_csv("fr"), "id-fr")]
+    at.run()
+    _radio(at, "Embedding-Quelle").set_value("Embeddings aus Textspalten berechnen").run()
+    next(s for s in at.selectbox if s.label == "Preset").set_value("Ollama (lokal)").run()
+    model = next(t for t in at.text_input if t.label == "Modell")
+    assert model.value == "bge-m3"
+    model.set_value("nomic-embed-text").run()
+    _button(at, "Embeddings berechnen").click().run()
+    assert not at.exception, at.exception
+    assert at.session_state["_embed_cfg"] == ("http://localhost:11434/v1", "nomic-embed-text", 20000)
+    comp = at.session_state["computed"]
+    assert len(comp["csv"]) == 2 and all(isinstance(b, bytes) and b for b in comp["csv"])

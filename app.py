@@ -143,6 +143,19 @@ def build_cached(
                                        note_col=note_col)
 
 
+@st.cache_data(max_entries=32, show_spinner=False)
+def text_stats_cached(
+    name: str, raw: bytes, row_idx: tuple[int, ...] | None, cols: tuple, max_chars: int
+) -> tuple[int, int, int]:
+    """(Anzahl Texte, Ø Zeichen, geschätzte Tokens) nach Kürzung, ohne Neuberechnung bei jedem Rerun."""
+    df = read_cached(name, raw)
+    if row_idx is not None:
+        df = df.iloc[list(row_idx)]
+    texts, _ = textprep.build_texts(df, list(cols), max_chars)
+    avg = int(sum(len(t) for t in texts.values()) / max(len(texts), 1))
+    return len(texts), avg, textprep.estimate_tokens(texts.values())
+
+
 def warn_bad_lines(name: str, df: pd.DataFrame) -> None:
     n = df.attrs.get("bad_lines", 0)
     if n > 0:
@@ -171,10 +184,11 @@ def render_embedding_settings() -> EmbeddingConfig:
             base_url = st.text_input("Base-URL", value=p["base_url"], key=f"emb_base_{preset}",
                                      help="OpenAI-kompatibler Endpunkt; das Tool ruft {Base-URL}/embeddings auf.")
         with c2:
-            if p["models"]:
+            if p["models"] and not p["local"]:
                 model = st.selectbox("Modell", p["models"], key=f"emb_model_{preset}")
             else:
-                model = st.text_input("Modell", value="", key=f"emb_model_{preset}", help="Modellname laut Endpunkt, z. B. bge-m3")
+                model = st.text_input("Modell", value=p["models"][0] if p["models"] else "", key=f"emb_model_{preset}",
+                                      help="Modellname laut Endpunkt, z. B. bge-m3")
         api_key = st.text_input("API-Key", type="password", key="emb_key",
                                 help="Nur in dieser Session im Speicher. Bei lokalen Servern meist leer.")
         max_chars = st.slider("Max. Zeichen je Text (Kürzung vor dem Versand)", 2000, 60000, 20000, 1000, key="emb_max_chars")
@@ -206,7 +220,7 @@ def compute_language_sets(pending: list[dict], emb_source: str, cfg: EmbeddingCo
         df = p["df"]
         st.write(f"**{p['label']}**")
         bar = st.progress(0.0)
-        keep, drop = io_utils.row_filter_reasons(df, p["url_col"], filter_idx, p["status_col"], p["index_col"])
+        keep, _ = io_utils.row_filter_reasons(df, p["url_col"], filter_idx, p["status_col"], p["index_col"])
         errors: dict[int, str] = {}
         if emb_source == EMB_FROM_TEXT:
             texts, errs = textprep.build_texts(df, p["text_cols"], cfg.max_chars)
@@ -391,13 +405,14 @@ for src in sources:
 
         if emb_source == EMB_IN_FILE and emb_guess is None:
             st.warning("Keine Embedding-Spalte automatisch erkannt. Bitte manuell auswählen.")
+        n_tokens = 0
         if emb_source == EMB_FROM_TEXT:
             if not text_cols:
                 st.warning("Bitte mindestens eine Textspalte wählen.")
             else:
-                _t, _ = textprep.build_texts(df, text_cols, cfg.max_chars)
-                avg = int(sum(len(t) for t in _t.values()) / max(len(_t), 1))
-                st.caption(f"{len(_t)} Texte, Ø {avg} Zeichen, ca. {textprep.estimate_tokens(_t.values())} Tokens")
+                n_texts, avg, n_tokens = text_stats_cached(src["name"], src["raw"], src["row_idx"], tuple(text_cols),
+                                                           cfg.max_chars)
+                st.caption(f"{n_texts} Texte, Ø {avg} Zeichen, ca. {n_tokens} Tokens")
         if filter_idx:
             missing = [n for n, c in (("Status-Code", status_col), ("Indexierbarkeit", index_col)) if c is None]
             if missing:
@@ -418,16 +433,33 @@ for src in sources:
                              "url_col": url_col, "emb_col": emb_col})
         else:
             pending.append({"df": df, "code": code_n, "label": src["label"], "url_col": url_col, "text_cols": text_cols,
-                            "status_col": status_col, "index_col": index_col, "key": key, "file_key": src["file_key"]})
+                            "status_col": status_col, "index_col": index_col, "key": key, "file_key": src["file_key"],
+                            "row_idx": src["row_idx"], "tokens": n_tokens})
 
 if emb_source != EMB_IN_FILE and invalid_codes == 0:
     if emb_source == EMB_FROM_TEXT and any(not p["text_cols"] for p in pending):
         st.stop()
+    if len(pending) < 2:
+        st.error("Es werden mindestens zwei Sprachvarianten benötigt.")
+        st.stop()
+    pending_codes = [p["code"] for p in pending]
+    pending_dupes = sorted({c for c in pending_codes if pending_codes.count(c) > 1})
+    if pending_dupes:
+        st.error(f"Doppelte hreflang-Codes: {', '.join(pending_dupes)}. Jede Sprachvariante braucht einen eigenen Code.")
+        st.stop()
     emb_sig = (emb_source, cfg.base_url, cfg.model, cfg.max_chars, filter_idx,
-               tuple((p["key"], p["file_key"], p["code"], tuple(p["text_cols"]), p["url_col"]) for p in pending))
+               tuple((p["key"], p["file_key"], p["code"], tuple(p["text_cols"]), p["url_col"], p["row_idx"])
+                     for p in pending))
     n_rows = sum(len(p["df"]) for p in pending)
-    hint = " text-embedding-3-small kostet ca. 0,02 $ je 1 Mio. Tokens." if "openai.com" in cfg.base_url else ""
-    st.caption(f"{n_rows} Zeilen in {len(pending)} Sprachvariante(n). Die Berechnung startet nur über den Button.{hint}")
+    if emb_source == EMB_FROM_TEXT:
+        total_tokens = sum(p["tokens"] for p in pending)
+        summary = f"{n_rows} Zeilen in {len(pending)} Sprachvariante(n), ca. {total_tokens} Tokens nach Kürzung."
+    else:
+        summary = f"{n_rows} Zeilen in {len(pending)} Sprachvariante(n)."
+    prices = {"text-embedding-3-small": "ca. 0,02 $ je 1 Mio. Tokens", "text-embedding-3-large": "ca. 0,13 $ je 1 Mio. Tokens"}
+    is_openai = st.session_state.get("emb_preset", "OpenAI") == "OpenAI"
+    hint = f" {cfg.model} kostet {prices[cfg.model]}." if is_openai and cfg.model in prices else ""
+    st.caption(f"{summary} Die Berechnung startet nur über den Button.{hint}")
     if st.button("Embeddings berechnen", type="primary", key="emb_compute"):
         if embed.PRESETS[st.session_state.get("emb_preset", "OpenAI")]["needs_key"] and not cfg.api_key:
             st.error("Für dieses Preset wird ein API-Key benötigt.")
@@ -436,13 +468,18 @@ if emb_source != EMB_IN_FILE and invalid_codes == 0:
         else:
             try:
                 with st.spinner("Embeddings werden berechnet …"):
-                    st.session_state["computed"] = {"sets": compute_language_sets(pending, emb_source, cfg, filter_idx),
-                                                    "sig": emb_sig}
+                    new_sets = compute_language_sets(pending, emb_source, cfg, filter_idx)
+                    # CSV-Payloads einmalig bei der Berechnung erzeugen, nicht bei jedem Rerun.
+                    st.session_state["computed"] = {"sets": new_sets, "sig": emb_sig,
+                                                    "csv": [io_utils.embeddings_csv(ls) for ls in new_sets]}
                 st.session_state.pop("result", None)
             except embed.EmbeddingError as e:
                 st.session_state.pop("computed", None)
                 st.error(f"Verbindung zum Endpunkt fehlgeschlagen ({cfg.base_url}): {e}")
     comp = st.session_state.get("computed")
+    if comp is not None and any(k not in comp for k in ("sets", "sig", "csv")):   # ältere Codeversion
+        st.session_state.pop("computed", None)
+        comp = None
     if not comp:
         st.info("Bitte auf „Embeddings berechnen“ klicken, um fortzufahren.")
         st.stop()
@@ -450,11 +487,11 @@ if emb_source != EMB_IN_FILE and invalid_codes == 0:
         st.warning("Die Embeddings sind veraltet (Spalten, Dateien oder Einstellungen haben sich geändert). "
                    "Bitte erneut auf „Embeddings berechnen“ klicken.")
         st.stop()
-    for ls, p in zip(comp["sets"], pending):
+    for ls, p, csv_bytes in zip(comp["sets"], pending, comp["csv"]):
         with st.container(border=True):
             st.markdown(f"**{p['label']}** – berechnet mit {cfg.model}")
             render_set_metrics(ls)
-            st.download_button(f"📥 Embeddings als CSV ({ls.code})", io_utils.embeddings_csv(ls),
+            st.download_button(f"📥 Embeddings als CSV ({ls.code})", csv_bytes,
                                f"embeddings_{ls.code}.csv", "text/csv", key=f"dl_emb_{p['key']}", on_click="ignore",
                                help="Im Modus „Embeddings sind in der Datei enthalten“ direkt wieder verwendbar.")
         sets.append(ls)
